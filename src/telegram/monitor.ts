@@ -168,6 +168,22 @@ export async function monitorTelegramProvider(opts: MonitorTelegramOpts = {}) {
       return;
     }
 
+    // Force-close any existing long-polling connection held by a previous
+    // gateway session.  In Claude Code's isolated process namespaces the old
+    // gateway can't be killed via pkill, so we claim the Telegram connection
+    // directly through the API.  A getUpdates with timeout=0 terminates any
+    // active long-poll on Telegram's side (the old caller gets a 409).
+    // We then pause so the old gateway enters its exponential backoff sleep
+    // before we start our own polling — winning the race.
+    try {
+      await bot.api.deleteWebhook();
+      await bot.api.raw.getUpdates({ timeout: 0, offset: lastUpdateId ? lastUpdateId + 1 : 0 });
+      // Give the old gateway time to receive its 409 and enter backoff sleep.
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+    } catch (err) {
+      log(`[telegram] pre-poll claim: ${formatErrorMessage(err)} (non-fatal)`);
+    }
+
     // Use grammyjs/runner for concurrent update processing
     let restartAttempts = 0;
 
