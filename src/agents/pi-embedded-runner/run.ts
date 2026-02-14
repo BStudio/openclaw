@@ -341,6 +341,13 @@ export async function runEmbeddedPiAgent(
             githubToken: apiKeyInfo.apiKey,
           });
           authStorage.setRuntimeApiKey(model.provider, copilotToken.token);
+        } else if (apiKeyInfo.mode === "oauth" || apiKeyInfo.mode === "token") {
+          authStorage.set(model.provider, {
+            type: "oauth",
+            access: apiKeyInfo.apiKey,
+            refresh: "",
+            expires: Date.now() + 86_400_000,
+          });
         } else {
           authStorage.setRuntimeApiKey(model.provider, apiKeyInfo.apiKey);
         }
