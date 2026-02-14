@@ -230,7 +230,7 @@ export async function monitorTelegramProvider(opts: MonitorTelegramOpts = {}) {
               offset: lastUpdateId ? lastUpdateId + 1 : 0,
             });
             await sleepWithAbort(500, opts.abortSignal);
-          } catch (claimErr) {
+          } catch {
             if (opts.abortSignal?.aborted) {
               return;
             }
