@@ -98,10 +98,16 @@ fi
 # --- Run auth diagnostic before starting gateway ---
 node "$CLAUDE_PROJECT_DIR/.claude/hooks/auth-diagnostic.mjs" 2>&1 | tee /tmp/openclaw-auth-diag.log >&2 || true
 
-# --- Start the gateway if not already running ---
-if ! pgrep -f "openclaw.*gateway" > /dev/null 2>&1; then
-  nohup node "$CLAUDE_PROJECT_DIR/dist/index.js" gateway > /tmp/openclaw-gateway.log 2>&1 &
-  echo "[session-start] OpenClaw Gateway started (PID $!)" >&2
+# --- (Re)start the gateway with the current session's token ---
+# Always kill the old gateway so the new process inherits the fresh
+# ANTHROPIC_OAUTH_TOKEN.  When a new Claude Code session starts in the
+# same container the old token is revoked, so the old gateway would 401.
+if pgrep -f "openclaw.*gateway" > /dev/null 2>&1; then
+  echo "[session-start] Killing existing gateway (stale token)…" >&2
+  pkill -f "openclaw.*gateway" || true
+  sleep 1
 fi
+nohup node "$CLAUDE_PROJECT_DIR/dist/index.js" gateway > /tmp/openclaw-gateway.log 2>&1 &
+echo "[session-start] OpenClaw Gateway started (PID $!)" >&2
 
 exit 0
