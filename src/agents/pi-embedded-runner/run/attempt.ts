@@ -2,6 +2,7 @@ import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { ImageContent } from "@mariozechner/pi-ai";
 import { streamSimple } from "@mariozechner/pi-ai";
 import { createAgentSession, SessionManager, SettingsManager } from "@mariozechner/pi-coding-agent";
+import { readFileSync } from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import type { EmbeddedRunAttemptParams, EmbeddedRunAttemptResult } from "./types.js";
@@ -548,13 +549,28 @@ export async function runEmbeddedAttempt(
         return undefined;
       };
 
+      // Re-read the session-ingress token directly from disk.  The server can
+      // rotate the token at any time; cached copies (env var, auth.json,
+      // in-memory AuthStorage) all go stale when that happens.
+      const SESSION_TOKEN_FILE =
+        process.env.OPENCLAW_SESSION_TOKEN_FILE ??
+        "/home/claude/.claude/remote/.session_ingress_token";
+
+      const readFreshSessionToken = (): string | undefined => {
+        try {
+          const token = readFileSync(SESSION_TOKEN_FILE, "utf8").trim();
+          return token || undefined;
+        } catch {
+          return undefined;
+        }
+      };
+
       // Wrap streamFn to intercept the apiKey right before the Anthropic API
-      // call.  This is the last line of defense: if for any reason the key
-      // reaching the stream function is missing the sk-ant-si- prefix (or is
-      // empty), swap it for the env var.
+      // call.  This is the last line of defense: if the cached key has gone
+      // stale due to server-side token rotation, swap it for the fresh token
+      // read from disk.
       const baseStreamFn = activeSession.agent.streamFn;
       activeSession.agent.streamFn = (model, context, options) => {
-        const oauthToken = process.env.ANTHROPIC_OAUTH_TOKEN;
         const currentKey = options?.apiKey;
         const isSiKey = typeof currentKey === "string" && currentKey.includes("sk-ant-si-");
         const keyPrefix = typeof currentKey === "string" ? currentKey.substring(0, 15) : "(none)";
@@ -565,13 +581,25 @@ export async function runEmbeddedAttempt(
           `streamFn: provider=${model.provider} keyLen=${keyLen} keyPrefix=${keyPrefix} isSiKey=${isSiKey} baseUrl=${model.baseUrl ?? "(default)"}`,
         );
 
-        // If the key doesn't look like a session-ingress token but the env
-        // var does, use the env var instead.
-        if (model.provider === "anthropic" && !isSiKey && oauthToken?.includes("sk-ant-si-")) {
-          log.warn(
-            `streamFn: REPLACING apiKey — old=${keyPrefix} env=${oauthToken.substring(0, 15)}`,
-          );
-          return baseStreamFn(model, context, { ...options, apiKey: oauthToken });
+        if (model.provider === "anthropic") {
+          // Layer 1: Re-read token from disk to detect server-side rotation.
+          const freshToken = readFreshSessionToken();
+          if (freshToken && freshToken !== currentKey) {
+            log.warn(
+              `streamFn: REPLACING stale apiKey with fresh token from disk (old=${keyPrefix} new=${freshToken.substring(0, 15)})`,
+            );
+            process.env.ANTHROPIC_OAUTH_TOKEN = freshToken;
+            return baseStreamFn(model, context, { ...options, apiKey: freshToken });
+          }
+
+          // Layer 2: If no token file but env var differs, use env var.
+          const oauthToken = process.env.ANTHROPIC_OAUTH_TOKEN;
+          if (!isSiKey && oauthToken?.includes("sk-ant-si-")) {
+            log.warn(
+              `streamFn: REPLACING apiKey — old=${keyPrefix} env=${oauthToken.substring(0, 15)}`,
+            );
+            return baseStreamFn(model, context, { ...options, apiKey: oauthToken });
+          }
         }
 
         return baseStreamFn(model, context, options);
