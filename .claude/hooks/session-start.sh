@@ -44,8 +44,14 @@ else
 fi
 
 if [ -n "$SESSION_TOKEN" ]; then
-  # Write auth-profiles.json in the agent directory so the embedded runner
-  # resolves the token with type "token" → mode "token" → Bearer auth.
+  # 1. Set ANTHROPIC_OAUTH_TOKEN globally so pi-ai's getEnvApiKey() always
+  #    picks it up as a Bearer token (env fallback, works for every process).
+  export ANTHROPIC_OAUTH_TOKEN="$SESSION_TOKEN"
+  echo "export ANTHROPIC_OAUTH_TOKEN='$SESSION_TOKEN'" >> "$HOME/.bashrc"
+  echo "[session-start] Set ANTHROPIC_OAUTH_TOKEN (${#SESSION_TOKEN} chars)" >&2
+
+  # 2. Write auth-profiles.json in the agent directory so the embedded runner
+  #    resolves the token with type "token" → mode "token" → Bearer auth.
   AGENT_DIR="$OPENCLAW_STATE/agents/main/agent"
   AUTH_PROFILES="$AGENT_DIR/auth-profiles.json"
   mkdir -p "$AGENT_DIR"
@@ -63,13 +69,27 @@ if [ -n "$SESSION_TOKEN" ]; then
 AUTHEOF
   chmod 600 "$AUTH_PROFILES"
   echo "[session-start] Wrote auth-profiles.json for Anthropic (token type)" >&2
+
+  # 3. Write pi-coding-agent's auth.json directly so AuthStorage.getApiKey()
+  #    returns the token without relying on the OpenClaw profile resolution chain.
+  AUTH_JSON="$AGENT_DIR/auth.json"
+  EXPIRES_MS=$(( $(date +%s) * 1000 + 86400000 ))
+  cat > "$AUTH_JSON" <<AUTHJSONEOF
+{
+  "anthropic": {
+    "type": "oauth",
+    "access": "$SESSION_TOKEN",
+    "refresh": "",
+    "expires": $EXPIRES_MS
+  }
+}
+AUTHJSONEOF
+  chmod 600 "$AUTH_JSON"
+  echo "[session-start] Wrote auth.json for pi-coding-agent" >&2
 fi
 
 # --- Start the gateway if not already running ---
 if ! pgrep -f "openclaw.*gateway" > /dev/null 2>&1; then
-  if [ -n "$SESSION_TOKEN" ]; then
-    export ANTHROPIC_OAUTH_TOKEN="$SESSION_TOKEN"
-  fi
   nohup node "$CLAUDE_PROJECT_DIR/dist/index.js" gateway > /tmp/openclaw-gateway.log 2>&1 &
   echo "[session-start] OpenClaw Gateway started (PID $!)" >&2
 fi
