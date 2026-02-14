@@ -1,50 +1,70 @@
 #!/bin/bash
-# C3-PO Bridge Setup
-# Run this at the start of a new Claude Code session to set up the
-# OpenClaw <-> Claude Code conversation bridge for C3-PO.
+# Multi-bot Bridge Setup
+# Reads scripts/bots.json and creates per-bot IPC directories under /tmp/openclaw-bridge/.
+# Each bot gets its own conversation.json, inbox.json, outbox.json, and inject.sh.
 #
 # Usage:  bash scripts/c3po-bridge-setup.sh
-# Then:   Use >> prefix to talk to C3-PO through OpenClaw
+# Bots:   Define in scripts/bots.json
 
 set -e
 
-IPC_DIR="/tmp/openclaw-bridge"
-mkdir -p "$IPC_DIR"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+BOTS_FILE="$SCRIPT_DIR/bots.json"
+BRIDGE_ROOT="/tmp/openclaw-bridge"
 
-# Create IPC files
-echo '[]' > "$IPC_DIR/inbox.json"
-echo '[]' > "$IPC_DIR/outbox.json"
-echo '[]' > "$IPC_DIR/conversation.json"
+mkdir -p "$BRIDGE_ROOT"
 
-# Create inject helper script
-cat > "$IPC_DIR/inject.sh" << 'SCRIPT'
+if [ ! -f "$BOTS_FILE" ]; then
+  echo "ERROR: $BOTS_FILE not found" >&2
+  exit 1
+fi
+
+# Parse bots.json and set up each bot
+BOT_COUNT=$(python3 -c "import json; print(len(json.load(open('$BOTS_FILE'))))")
+
+for i in $(seq 0 $((BOT_COUNT - 1))); do
+  BOT_ID=$(python3 -c "import json; print(json.load(open('$BOTS_FILE'))[$i]['id'])")
+  BOT_PREFIX=$(python3 -c "import json; print(json.load(open('$BOTS_FILE'))[$i]['prefix'])")
+  BOT_MODEL=$(python3 -c "import json; print(json.load(open('$BOTS_FILE'))[$i]['model'])")
+  BOT_SESSION_KEY=$(python3 -c "import json; print(json.load(open('$BOTS_FILE'))[$i].get('sessionKey', 'agent:dev:main'))")
+
+  IPC_DIR="$BRIDGE_ROOT/$BOT_ID"
+  mkdir -p "$IPC_DIR"
+
+  # Create IPC files (preserve conversation history if it exists)
+  echo '[]' > "$IPC_DIR/inbox.json"
+  echo '[]' > "$IPC_DIR/outbox.json"
+  [ -f "$IPC_DIR/conversation.json" ] || echo '[]' > "$IPC_DIR/conversation.json"
+
+  # Create per-bot inject helper
+  cat > "$IPC_DIR/inject.sh" << SCRIPT
 #!/bin/bash
 # Usage: ./inject.sh "assistant message text"
 set -e
-IPC_DIR="/tmp/openclaw-bridge"
-CONV="$IPC_DIR/conversation.json"
-INBOX="$IPC_DIR/inbox.json"
-OUTBOX="$IPC_DIR/outbox.json"
-MSG="$1"
-REQ_ID="inject-$(date +%s)"
+IPC_DIR="$IPC_DIR"
+CONV="\$IPC_DIR/conversation.json"
+INBOX="$BRIDGE_ROOT/inbox.json"
+OUTBOX="$BRIDGE_ROOT/outbox.json"
+MSG="\$1"
+REQ_ID="inject-$BOT_ID-\$(date +%s)"
 
-echo '[]' > "$OUTBOX"
+echo '[]' > "\$OUTBOX"
 
 python3 -c "
 import json, sys
 msg = sys.argv[1]
-req = [{'requestId': '$REQ_ID', 'method': 'chat.inject', 'params': {'sessionKey': 'agent:dev:main', 'message': msg}}]
-with open('$INBOX', 'w') as f:
+req = [{'requestId': '\$REQ_ID', 'method': 'chat.inject', 'params': {'sessionKey': '$BOT_SESSION_KEY', 'message': msg}}]
+with open('\$INBOX', 'w') as f:
     json.dump(req, f)
-" "$MSG"
+" "\$MSG"
 
 sleep 2
 
 python3 -c "
 import json, sys
-data = json.load(open('$OUTBOX'))
+data = json.load(open('\$OUTBOX'))
 for item in data:
-    if item.get('requestId') == '$REQ_ID':
+    if item.get('requestId') == '\$REQ_ID':
         r = item['response']
         if r.get('ok'):
             print('OK:' + r['payload']['messageId'])
@@ -55,24 +75,26 @@ for item in data:
 
 python3 -c "
 import json, sys
-conv = json.load(open('$CONV'))
+conv = json.load(open('\$CONV'))
 conv.append({'role': 'assistant', 'text': sys.argv[1]})
-with open('$CONV', 'w') as f:
+with open('\$CONV', 'w') as f:
     json.dump(conv, f)
-" "$MSG"
+" "\$MSG"
 SCRIPT
 
-chmod +x "$IPC_DIR/inject.sh"
+  chmod +x "$IPC_DIR/inject.sh"
+
+  echo "  [$BOT_ID] prefix=$BOT_PREFIX model=$BOT_MODEL dir=$IPC_DIR"
+done
+
+# Also keep root-level IPC files for the shared bridge.mjs WebSocket
+echo '[]' > "$BRIDGE_ROOT/inbox.json"
+echo '[]' > "$BRIDGE_ROOT/outbox.json"
 
 echo ""
-echo "=== C3-PO Bridge Ready ==="
+echo "=== Multi-Bot Bridge Ready ==="
 echo ""
-echo "IPC dir:      $IPC_DIR"
-echo "Conversation: $IPC_DIR/conversation.json"
-echo "Inject:       $IPC_DIR/inject.sh"
-echo ""
-echo "Tell Claude Code:"
-echo "  >> message    — routes to C3-PO via OpenClaw"
-echo "  >>> message   — same but uses Opus for heavy thinking"
-echo "  no prefix     — normal chat with Opus"
+echo "Bridge root:  $BRIDGE_ROOT"
+echo "Bots config:  $BOTS_FILE"
+echo "Bots online:  $BOT_COUNT"
 echo ""
