@@ -32,11 +32,43 @@ if [ ! -d "$OPENCLAW_STATE/workspace" ] && [ -d "$BOOTSTRAP_DIR/workspace" ]; th
   echo "[session-start] Bootstrapped agent workspace" >&2
 fi
 
+# --- Bootstrap Anthropic auth from session ingress token ---
+TOKEN_FILE="/home/claude/.claude/remote/.session_ingress_token"
+SESSION_TOKEN=""
+
+if [ -f "$TOKEN_FILE" ]; then
+  SESSION_TOKEN=$(cat "$TOKEN_FILE")
+  echo "[session-start] Found session ingress token (${#SESSION_TOKEN} chars)" >&2
+else
+  echo "[session-start] WARNING: No session ingress token at $TOKEN_FILE" >&2
+fi
+
+if [ -n "$SESSION_TOKEN" ]; then
+  # Write auth-profiles.json in the agent directory so the embedded runner
+  # resolves the token with type "token" → mode "token" → Bearer auth.
+  AGENT_DIR="$OPENCLAW_STATE/agents/main/agent"
+  AUTH_PROFILES="$AGENT_DIR/auth-profiles.json"
+  mkdir -p "$AGENT_DIR"
+  cat > "$AUTH_PROFILES" <<AUTHEOF
+{
+  "version": 1,
+  "profiles": {
+    "session-ingress": {
+      "type": "token",
+      "provider": "anthropic",
+      "token": "$SESSION_TOKEN"
+    }
+  }
+}
+AUTHEOF
+  chmod 600 "$AUTH_PROFILES"
+  echo "[session-start] Wrote auth-profiles.json for Anthropic (token type)" >&2
+fi
+
 # --- Start the gateway if not already running ---
 if ! pgrep -f "openclaw.*gateway" > /dev/null 2>&1; then
-  TOKEN_FILE="/home/claude/.claude/remote/.session_ingress_token"
-  if [ -f "$TOKEN_FILE" ]; then
-    export ANTHROPIC_OAUTH_TOKEN=$(cat "$TOKEN_FILE")
+  if [ -n "$SESSION_TOKEN" ]; then
+    export ANTHROPIC_OAUTH_TOKEN="$SESSION_TOKEN"
   fi
   nohup node "$CLAUDE_PROJECT_DIR/dist/index.js" gateway > /tmp/openclaw-gateway.log 2>&1 &
   echo "[session-start] OpenClaw Gateway started (PID $!)" >&2
