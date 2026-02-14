@@ -8,6 +8,13 @@ fi
 
 cd "$CLAUDE_PROJECT_DIR"
 
+# --- Set ANTHROPIC_OAUTH_TOKEN early so it's available to all processes ---
+TOKEN_FILE="/home/claude/.claude/remote/.session_ingress_token"
+if [ -f "$TOKEN_FILE" ]; then
+  export ANTHROPIC_OAUTH_TOKEN="$(cat "$TOKEN_FILE")"
+  echo "[session-start] ANTHROPIC_OAUTH_TOKEN set early (${#ANTHROPIC_OAUTH_TOKEN} chars)" >&2
+fi
+
 # Install pnpm workspace dependencies (idempotent, uses cache)
 pnpm install
 
@@ -87,6 +94,9 @@ AUTHJSONEOF
   chmod 600 "$AUTH_JSON"
   echo "[session-start] Wrote auth.json for pi-coding-agent" >&2
 fi
+
+# --- Run auth diagnostic before starting gateway ---
+node "$CLAUDE_PROJECT_DIR/.claude/hooks/auth-diagnostic.mjs" 2>&1 | tee /tmp/openclaw-auth-diag.log >&2 || true
 
 # --- Start the gateway if not already running ---
 if ! pgrep -f "openclaw.*gateway" > /dev/null 2>&1; then

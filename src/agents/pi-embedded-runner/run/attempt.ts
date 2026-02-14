@@ -524,6 +524,26 @@ export async function runEmbeddedAttempt(
       // Force a stable streamFn reference so vitest can reliably mock @mariozechner/pi-ai.
       activeSession.agent.streamFn = streamSimple;
 
+      // Belt-and-suspenders: if auth chain fails to return a key for Anthropic,
+      // fall back to the ANTHROPIC_OAUTH_TOKEN env var (set by session-start hook).
+      const originalGetApiKey = activeSession.agent.getApiKey;
+      activeSession.agent.getApiKey = async (provider: string) => {
+        const key = originalGetApiKey ? await originalGetApiKey(provider) : undefined;
+        if (key) {
+          return key;
+        }
+        if (provider === "anthropic" && process.env.ANTHROPIC_OAUTH_TOKEN) {
+          log.warn(
+            "getApiKey: auth chain returned no key, falling back to ANTHROPIC_OAUTH_TOKEN env var",
+            {
+              envPrefix: process.env.ANTHROPIC_OAUTH_TOKEN.substring(0, 15),
+            },
+          );
+          return process.env.ANTHROPIC_OAUTH_TOKEN;
+        }
+        return key;
+      };
+
       applyExtraParamsToAgent(
         activeSession.agent,
         params.config,
