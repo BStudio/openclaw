@@ -528,20 +528,56 @@ export async function runEmbeddedAttempt(
       // fall back to the ANTHROPIC_OAUTH_TOKEN env var (set by session-start hook).
       const originalGetApiKey = activeSession.agent.getApiKey;
       activeSession.agent.getApiKey = async (provider: string) => {
-        const key = originalGetApiKey ? await originalGetApiKey(provider) : undefined;
-        if (key) {
-          return key;
+        try {
+          const key = originalGetApiKey ? await originalGetApiKey(provider) : undefined;
+          if (key) {
+            return key;
+          }
+        } catch (err) {
+          log.warn("getApiKey: auth chain threw, attempting env var fallback", {
+            provider,
+            error: String(err),
+          });
         }
         if (provider === "anthropic" && process.env.ANTHROPIC_OAUTH_TOKEN) {
-          log.warn(
-            "getApiKey: auth chain returned no key, falling back to ANTHROPIC_OAUTH_TOKEN env var",
-            {
-              envPrefix: process.env.ANTHROPIC_OAUTH_TOKEN.substring(0, 15),
-            },
-          );
+          log.warn("getApiKey: falling back to ANTHROPIC_OAUTH_TOKEN env var", {
+            envPrefix: process.env.ANTHROPIC_OAUTH_TOKEN.substring(0, 15),
+          });
           return process.env.ANTHROPIC_OAUTH_TOKEN;
         }
-        return key;
+        return undefined;
+      };
+
+      // Wrap streamFn to intercept the apiKey right before the Anthropic API
+      // call.  This is the last line of defense: if for any reason the key
+      // reaching the stream function is missing the sk-ant-si- prefix (or is
+      // empty), swap it for the env var.
+      const baseStreamFn = activeSession.agent.streamFn;
+      activeSession.agent.streamFn = (model, context, options) => {
+        const oauthToken = process.env.ANTHROPIC_OAUTH_TOKEN;
+        const currentKey = options?.apiKey;
+        const isSiKey = typeof currentKey === "string" && currentKey.includes("sk-ant-si-");
+
+        log.info("streamFn intercepted", {
+          provider: model.provider,
+          hasApiKey: Boolean(currentKey),
+          keyLen: typeof currentKey === "string" ? currentKey.length : 0,
+          keyPrefix: typeof currentKey === "string" ? currentKey.substring(0, 15) : "(none)",
+          isSiKey,
+          hasEnvToken: Boolean(oauthToken),
+        });
+
+        // If the key doesn't look like a session-ingress token but the env
+        // var does, use the env var instead.
+        if (model.provider === "anthropic" && !isSiKey && oauthToken?.includes("sk-ant-si-")) {
+          log.warn("streamFn: replacing apiKey with ANTHROPIC_OAUTH_TOKEN env var", {
+            oldKeyPrefix: typeof currentKey === "string" ? currentKey.substring(0, 15) : "(none)",
+            envPrefix: oauthToken.substring(0, 15),
+          });
+          return baseStreamFn(model, context, { ...options, apiKey: oauthToken });
+        }
+
+        return baseStreamFn(model, context, options);
       };
 
       applyExtraParamsToAgent(
