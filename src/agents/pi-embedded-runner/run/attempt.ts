@@ -632,46 +632,6 @@ export async function runEmbeddedAttempt(
           `streamFn: provider=${model.provider} keyLen=${keyLen} keyPrefix=${keyPrefix} isSiKey=${isSiKey} baseUrl=${model.baseUrl ?? "(default)"}`,
         );
 
-        // Debug: log model.headers and options.headers to detect auth header contamination
-        if (model.headers) {
-          const hdrKeys = Object.keys(model.headers as Record<string, unknown>);
-          log.info(`streamFn model.headers keys: [${hdrKeys.join(",")}]`);
-        }
-        if (options?.headers) {
-          const hdrKeys = Object.keys(options.headers as Record<string, unknown>);
-          log.info(`streamFn options.headers keys: [${hdrKeys.join(",")}]`);
-        }
-
-        // Intercept fetch to log actual HTTP request headers the SDK sends.
-        // This is the DEFINITIVE diagnostic: see exactly what headers hit the wire.
-        const origFetch = globalThis.fetch;
-        let fetchInterceptInstalled = false;
-        if (model.provider === "anthropic" && isSiKey) {
-          fetchInterceptInstalled = true;
-          globalThis.fetch = (async (
-            input: RequestInfo | URL,
-            init?: RequestInit,
-          ): Promise<Response> => {
-            const url =
-              typeof input === "string"
-                ? input
-                : input instanceof URL
-                  ? input.toString()
-                  : input.url;
-            if (url.includes("anthropic.com")) {
-              const hdrs = new Headers(init?.headers);
-              const hasXApiKey = hdrs.has("x-api-key");
-              const hasAuth = hdrs.has("authorization");
-              const xApiKeyPrefix = hasXApiKey ? hdrs.get("x-api-key")?.substring(0, 15) : "(none)";
-              const authPrefix = hasAuth ? hdrs.get("authorization")?.substring(0, 30) : "(none)";
-              log.info(
-                `fetch-intercept: url=${url.substring(0, 60)} hasXApiKey=${hasXApiKey} xApiKeyPrefix=${xApiKeyPrefix} hasAuth=${hasAuth} authPrefix=${authPrefix}`,
-              );
-            }
-            return origFetch(input, init);
-          }) as typeof globalThis.fetch;
-        }
-
         if (model.provider === "anthropic") {
           // Layer 1: Re-read token from disk to detect server-side rotation.
           const freshToken = readFreshSessionToken();
@@ -680,13 +640,21 @@ export async function runEmbeddedAttempt(
               `streamFn: REPLACING stale apiKey with fresh token from disk (old=${keyPrefix} new=${freshToken.substring(0, 15)})`,
             );
             process.env.ANTHROPIC_OAUTH_TOKEN = freshToken;
+            const isFreshSiKey = freshToken.includes("sk-ant-si-");
+            const freshOptions = isFreshSiKey
+              ? {
+                  ...options,
+                  apiKey: undefined,
+                  headers: {
+                    ...options?.headers,
+                    Authorization: `Bearer ${freshToken}`,
+                  },
+                }
+              : { ...options, apiKey: freshToken };
             const freshResult = logStreamResult(
-              baseStreamFn(model, context, { ...options, apiKey: freshToken }),
+              baseStreamFn(model, context, freshOptions),
               "fresh-token",
             );
-            if (fetchInterceptInstalled) {
-              globalThis.fetch = origFetch;
-            }
             return freshResult;
           }
 
@@ -696,23 +664,38 @@ export async function runEmbeddedAttempt(
             log.warn(
               `streamFn: REPLACING apiKey — old=${keyPrefix} env=${oauthToken.substring(0, 15)}`,
             );
-            const envResult = logStreamResult(
-              baseStreamFn(model, context, { ...options, apiKey: oauthToken }),
-              "env-swap",
-            );
-            if (fetchInterceptInstalled) {
-              globalThis.fetch = origFetch;
-            }
+            const envOptions = {
+              ...options,
+              apiKey: undefined,
+              headers: {
+                ...options?.headers,
+                Authorization: `Bearer ${oauthToken}`,
+              },
+            };
+            const envResult = logStreamResult(baseStreamFn(model, context, envOptions), "env-swap");
             return envResult;
+          }
+
+          // Layer 3: Convert session ingress tokens to Bearer auth
+          if (isSiKey) {
+            log.info(`streamFn: converting sk-ant-si-* token to Bearer auth`);
+            const bearerOptions = {
+              ...options,
+              apiKey: undefined,
+              headers: {
+                ...options?.headers,
+                Authorization: `Bearer ${currentKey}`,
+              },
+            };
+            const result = logStreamResult(
+              baseStreamFn(model, context, bearerOptions),
+              "bearer-auth",
+            );
+            return result;
           }
         }
 
         const result = logStreamResult(baseStreamFn(model, context, options), "default");
-        // Restore original fetch after stream is initiated (the HTTP request is
-        // already in-flight at this point, so subsequent fetches use the real one).
-        if (fetchInterceptInstalled) {
-          globalThis.fetch = origFetch;
-        }
         return result;
       };
 
