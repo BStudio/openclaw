@@ -571,31 +571,49 @@ export async function runEmbeddedAttempt(
       // read from disk.
       const baseStreamFn = activeSession.agent.streamFn;
 
-      const logStreamErrors = (
+      // pi-ai's AssistantMessageEventStream.result() RESOLVES (not rejects)
+      // even on API errors.  The error is embedded in the resolved value as
+      // { stopReason: "error", errorMessage: "..." }.  So we must check the
+      // resolved value, not use .catch().
+      const logStreamResult = (
         stream: ReturnType<typeof baseStreamFn>,
         label: string,
       ): ReturnType<typeof baseStreamFn> => {
-        const attachErrorLogger = (s: { result(): Promise<unknown> }) => {
-          s.result().catch((error: unknown) => {
-            const status =
-              error && typeof error === "object" && "status" in error
-                ? String((error as { status: unknown }).status)
-                : "?";
-            const message = error instanceof Error ? error.message : JSON.stringify(error);
-            log.error(`streamFn ${label} ERROR: status=${status} message=${message}`);
-            if (error && typeof error === "object" && "error" in error) {
+        const checkResult = (s: { result?: () => Promise<unknown> }) => {
+          if (typeof s.result !== "function") {
+            return;
+          }
+          s.result().then(
+            (resolved: unknown) => {
+              if (
+                resolved &&
+                typeof resolved === "object" &&
+                "stopReason" in resolved &&
+                (resolved as { stopReason: string }).stopReason === "error"
+              ) {
+                const r = resolved as { errorMessage?: string; stopReason: string };
+                log.error(
+                  `streamFn ${label} API ERROR: stopReason=${r.stopReason} errorMessage=${r.errorMessage ?? "(none)"}`,
+                );
+              }
+            },
+            (err: unknown) => {
               log.error(
-                `streamFn ${label} body: ${JSON.stringify((error as { error: unknown }).error).substring(0, 500)}`,
+                `streamFn ${label} REJECT: ${err instanceof Error ? err.message : JSON.stringify(err)}`,
               );
-            }
-          });
+            },
+          );
         };
 
         if (stream && typeof (stream as { result?: unknown }).result === "function") {
-          attachErrorLogger(stream as { result(): Promise<unknown> });
+          checkResult(stream as { result: () => Promise<unknown> });
         } else if (stream instanceof Promise) {
           stream.then(
-            (resolved) => attachErrorLogger(resolved as { result(): Promise<unknown> }),
+            (resolved) => {
+              if (resolved && typeof (resolved as { result?: unknown }).result === "function") {
+                checkResult(resolved as { result: () => Promise<unknown> });
+              }
+            },
             (err: unknown) =>
               log.error(`streamFn ${label} PROMISE ERROR: ${(err as Error)?.message ?? err}`),
           );
@@ -622,7 +640,7 @@ export async function runEmbeddedAttempt(
               `streamFn: REPLACING stale apiKey with fresh token from disk (old=${keyPrefix} new=${freshToken.substring(0, 15)})`,
             );
             process.env.ANTHROPIC_OAUTH_TOKEN = freshToken;
-            return logStreamErrors(
+            return logStreamResult(
               baseStreamFn(model, context, { ...options, apiKey: freshToken }),
               "fresh-token",
             );
@@ -634,14 +652,14 @@ export async function runEmbeddedAttempt(
             log.warn(
               `streamFn: REPLACING apiKey — old=${keyPrefix} env=${oauthToken.substring(0, 15)}`,
             );
-            return logStreamErrors(
+            return logStreamResult(
               baseStreamFn(model, context, { ...options, apiKey: oauthToken }),
               "env-swap",
             );
           }
         }
 
-        return logStreamErrors(baseStreamFn(model, context, options), "default");
+        return logStreamResult(baseStreamFn(model, context, options), "default");
       };
 
       applyExtraParamsToAgent(
@@ -946,6 +964,44 @@ export async function runEmbeddedAttempt(
             note: `images: prompt=${imageResult.images.length} history=${imageResult.historyImagesByIndex.size}`,
           });
 
+          // ── Canary API test ──────────────────────────────────────────
+          // Make a raw fetch() call to Anthropic using the exact same token
+          // to confirm it works from THIS process (not just the diagnostic hook).
+          if (params.provider === "anthropic") {
+            const canaryToken = readFreshSessionToken() ?? process.env.ANTHROPIC_OAUTH_TOKEN;
+            if (canaryToken?.includes("sk-ant-si-")) {
+              try {
+                const canaryResp = await fetch("https://api.anthropic.com/v1/messages", {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${canaryToken}`,
+                    "anthropic-version": "2023-06-01",
+                    "anthropic-beta":
+                      "claude-code-20250219,oauth-2025-04-20,fine-grained-tool-streaming-2025-05-14,interleaved-thinking-2025-05-14",
+                  },
+                  body: JSON.stringify({
+                    model: params.modelId,
+                    max_tokens: 5,
+                    messages: [{ role: "user", content: "Say ok" }],
+                  }),
+                  signal: AbortSignal.timeout(10_000),
+                });
+                log.info(
+                  `canary API test: model=${params.modelId} status=${canaryResp.status} ok=${canaryResp.ok}`,
+                );
+                if (!canaryResp.ok) {
+                  const body = await canaryResp.text().catch(() => "(unreadable)");
+                  log.error(`canary API test FAILED: ${body.substring(0, 500)}`);
+                }
+              } catch (canaryErr) {
+                log.error(
+                  `canary API test exception: ${canaryErr instanceof Error ? canaryErr.message : String(canaryErr)}`,
+                );
+              }
+            }
+          }
+
           // Only pass images option if there are actually images to pass
           // This avoids potential issues with models that don't expect the images parameter
           if (imageResult.images.length > 0) {
@@ -959,6 +1015,23 @@ export async function runEmbeddedAttempt(
           log.debug(
             `embedded run prompt end: runId=${params.runId} sessionId=${params.sessionId} durationMs=${Date.now() - promptStartedAt}`,
           );
+        }
+
+        // ── Post-prompt error detection ─────────────────────────────
+        // Check the last assistant message for embedded API errors
+        // (pi-ai resolves .result() with error info instead of rejecting).
+        {
+          const lastMsg = activeSession.messages
+            .slice()
+            .toReversed()
+            .find((m: AgentMessage) => m.role === "assistant");
+          if (lastMsg && "stopReason" in lastMsg && lastMsg.stopReason === "error") {
+            const errMsg =
+              "errorMessage" in lastMsg && typeof lastMsg.errorMessage === "string"
+                ? lastMsg.errorMessage
+                : "(no errorMessage)";
+            log.error(`prompt returned error message: stopReason=error errorMessage=${errMsg}`);
+          }
         }
 
         try {
