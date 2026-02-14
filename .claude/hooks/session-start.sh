@@ -105,7 +105,16 @@ node "$CLAUDE_PROJECT_DIR/.claude/hooks/auth-diagnostic.mjs" 2>&1 | tee /tmp/ope
 if pgrep -f "openclaw.*gateway" > /dev/null 2>&1; then
   echo "[session-start] Killing existing gateway (stale token)…" >&2
   pkill -f "openclaw.*gateway" || true
-  sleep 1
+  # Wait up to 5s for graceful shutdown (closes Telegram long-poll)
+  for _i in 1 2 3 4 5; do
+    pgrep -f "openclaw.*gateway" > /dev/null 2>&1 || break
+    sleep 1
+  done
+  # Force-kill stragglers
+  pkill -9 -f "openclaw.*gateway" 2>/dev/null || true
+  # Extra pause so Telegram servers release the old getUpdates connection
+  sleep 2
+  echo "[session-start] Old gateway stopped" >&2
 fi
 nohup node "$CLAUDE_PROJECT_DIR/dist/index.js" gateway > /tmp/openclaw-gateway.log 2>&1 &
 echo "[session-start] OpenClaw Gateway started (PID $!)" >&2
