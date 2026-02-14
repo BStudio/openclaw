@@ -632,6 +632,10 @@ export async function runEmbeddedAttempt(
           `streamFn: provider=${model.provider} keyLen=${keyLen} keyPrefix=${keyPrefix} isSiKey=${isSiKey} baseUrl=${model.baseUrl ?? "(default)"}`,
         );
 
+        // Intercept fetch to convert sk-ant-si-* tokens from x-api-key to Bearer auth
+        const origFetch = globalThis.fetch;
+        let tokenToConvert: string | null = null;
+
         if (model.provider === "anthropic") {
           // Layer 1: Re-read token from disk to detect server-side rotation.
           const freshToken = readFreshSessionToken();
@@ -640,19 +644,11 @@ export async function runEmbeddedAttempt(
               `streamFn: REPLACING stale apiKey with fresh token from disk (old=${keyPrefix} new=${freshToken.substring(0, 15)})`,
             );
             process.env.ANTHROPIC_OAUTH_TOKEN = freshToken;
-            const isFreshSiKey = freshToken.includes("sk-ant-si-");
-            const freshOptions = isFreshSiKey
-              ? {
-                  ...options,
-                  apiKey: undefined,
-                  headers: {
-                    ...options?.headers,
-                    Authorization: `Bearer ${freshToken}`,
-                  },
-                }
-              : { ...options, apiKey: freshToken };
+            if (freshToken.includes("sk-ant-si-")) {
+              tokenToConvert = freshToken;
+            }
             const freshResult = logStreamResult(
-              baseStreamFn(model, context, freshOptions),
+              baseStreamFn(model, context, { ...options, apiKey: freshToken }),
               "fresh-token",
             );
             return freshResult;
@@ -664,35 +660,49 @@ export async function runEmbeddedAttempt(
             log.warn(
               `streamFn: REPLACING apiKey — old=${keyPrefix} env=${oauthToken.substring(0, 15)}`,
             );
-            const envOptions = {
-              ...options,
-              apiKey: undefined,
-              headers: {
-                ...options?.headers,
-                Authorization: `Bearer ${oauthToken}`,
-              },
-            };
-            const envResult = logStreamResult(baseStreamFn(model, context, envOptions), "env-swap");
+            tokenToConvert = oauthToken;
+            const envResult = logStreamResult(
+              baseStreamFn(model, context, { ...options, apiKey: oauthToken }),
+              "env-swap",
+            );
             return envResult;
           }
 
-          // Layer 3: Convert session ingress tokens to Bearer auth
+          // Layer 3: Convert session ingress tokens to Bearer auth via fetch intercept
           if (isSiKey) {
-            log.info(`streamFn: converting sk-ant-si-* token to Bearer auth`);
-            const bearerOptions = {
-              ...options,
-              apiKey: undefined,
-              headers: {
-                ...options?.headers,
-                Authorization: `Bearer ${currentKey}`,
-              },
-            };
-            const result = logStreamResult(
-              baseStreamFn(model, context, bearerOptions),
-              "bearer-auth",
-            );
-            return result;
+            log.info(`streamFn: will convert sk-ant-si-* token to Bearer auth via fetch intercept`);
+            tokenToConvert = currentKey;
           }
+        }
+
+        // Install fetch intercept if we need to convert a token
+        if (tokenToConvert) {
+          globalThis.fetch = (async (
+            input: RequestInfo | URL,
+            init?: RequestInit,
+          ): Promise<Response> => {
+            const url =
+              typeof input === "string"
+                ? input
+                : input instanceof URL
+                  ? input.toString()
+                  : input.url;
+            if (url.includes("anthropic.com") && tokenToConvert) {
+              const headers = new Headers(init?.headers);
+              if (headers.has("x-api-key") && headers.get("x-api-key") === tokenToConvert) {
+                log.info(`fetch intercept: converting x-api-key to Bearer for sk-ant-si-* token`);
+                headers.delete("x-api-key");
+                headers.set("Authorization", `Bearer ${tokenToConvert}`);
+                const modifiedInit = { ...init, headers };
+                const response = await origFetch(input, modifiedInit);
+                globalThis.fetch = origFetch;
+                return response;
+              }
+            }
+            const response = await origFetch(input, init);
+            globalThis.fetch = origFetch;
+            return response;
+          }) as typeof globalThis.fetch;
         }
 
         const result = logStreamResult(baseStreamFn(model, context, options), "default");
