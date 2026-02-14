@@ -25,8 +25,8 @@ If `/tmp/openclaw-bridge/<bot-id>/` doesn't exist, run `bash scripts/c3po-bridge
 
 ## Current bots
 
-| Prefix | Bot  | Model | Persona                                                               |
-| ------ | ---- | ----- | --------------------------------------------------------------------- |
-| `>>`   | c3po | haiku | C-3PO protocol droid — anxious, overly formal, worried about the odds |
+| Prefix  | Bot  | Model | Persona                                                               |
+| ------- | ---- | ----- | --------------------------------------------------------------------- |
+| `@c3po` | c3po | haiku | C-3PO protocol droid — anxious, overly formal, worried about the odds |
 
 To add a new bot, append an entry to `scripts/bots.json` and re-run the setup script.
