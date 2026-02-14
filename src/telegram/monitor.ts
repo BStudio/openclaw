@@ -186,6 +186,7 @@ export async function monitorTelegramProvider(opts: MonitorTelegramOpts = {}) {
 
     // Use grammyjs/runner for concurrent update processing
     let restartAttempts = 0;
+    let conflictAttempts = 0;
 
     while (!opts.abortSignal?.aborted) {
       const runner = run(bot, createTelegramRunnerOptions(cfg));
@@ -208,12 +209,42 @@ export async function monitorTelegramProvider(opts: MonitorTelegramOpts = {}) {
         if (!isConflict && !isRecoverable) {
           throw err;
         }
+
+        if (isConflict) {
+          // 409 conflict means another bot instance is polling.  Re-claim the
+          // connection with a short fixed delay instead of exponential backoff.
+          // The other instance uses exponential backoff (grows to 30 s), so we
+          // always win the race by retrying faster.
+          conflictAttempts += 1;
+          const conflictDelay = Math.min(500 * conflictAttempts, 3000);
+          const errMsg = formatErrorMessage(err);
+          (opts.runtime?.error ?? console.error)(
+            `Telegram getUpdates conflict: ${errMsg}; re-claiming in ${formatDurationPrecise(conflictDelay)}.`,
+          );
+          try {
+            await sleepWithAbort(conflictDelay, opts.abortSignal);
+            // Re-claim: a getUpdates(timeout=0) terminates the other instance's
+            // long-poll, then we pause briefly before restarting our runner.
+            await bot.api.raw.getUpdates({
+              timeout: 0,
+              offset: lastUpdateId ? lastUpdateId + 1 : 0,
+            });
+            await sleepWithAbort(500, opts.abortSignal);
+          } catch (claimErr) {
+            if (opts.abortSignal?.aborted) {
+              return;
+            }
+            // Non-fatal: we'll retry the whole loop.
+          }
+          continue;
+        }
+
+        // Network error — use exponential backoff.
         restartAttempts += 1;
         const delayMs = computeBackoff(TELEGRAM_POLL_RESTART_POLICY, restartAttempts);
-        const reason = isConflict ? "getUpdates conflict" : "network error";
         const errMsg = formatErrorMessage(err);
         (opts.runtime?.error ?? console.error)(
-          `Telegram ${reason}: ${errMsg}; retrying in ${formatDurationPrecise(delayMs)}.`,
+          `Telegram network error: ${errMsg}; retrying in ${formatDurationPrecise(delayMs)}.`,
         );
         try {
           await sleepWithAbort(delayMs, opts.abortSignal);
