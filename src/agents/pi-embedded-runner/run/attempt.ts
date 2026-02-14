@@ -557,23 +557,20 @@ export async function runEmbeddedAttempt(
         const oauthToken = process.env.ANTHROPIC_OAUTH_TOKEN;
         const currentKey = options?.apiKey;
         const isSiKey = typeof currentKey === "string" && currentKey.includes("sk-ant-si-");
+        const keyPrefix = typeof currentKey === "string" ? currentKey.substring(0, 15) : "(none)";
+        const keyLen = typeof currentKey === "string" ? currentKey.length : 0;
 
-        log.info("streamFn intercepted", {
-          provider: model.provider,
-          hasApiKey: Boolean(currentKey),
-          keyLen: typeof currentKey === "string" ? currentKey.length : 0,
-          keyPrefix: typeof currentKey === "string" ? currentKey.substring(0, 15) : "(none)",
-          isSiKey,
-          hasEnvToken: Boolean(oauthToken),
-        });
+        // Include key details in the message string so they appear in gateway log
+        log.info(
+          `streamFn: provider=${model.provider} keyLen=${keyLen} keyPrefix=${keyPrefix} isSiKey=${isSiKey} baseUrl=${model.baseUrl ?? "(default)"}`,
+        );
 
         // If the key doesn't look like a session-ingress token but the env
         // var does, use the env var instead.
         if (model.provider === "anthropic" && !isSiKey && oauthToken?.includes("sk-ant-si-")) {
-          log.warn("streamFn: replacing apiKey with ANTHROPIC_OAUTH_TOKEN env var", {
-            oldKeyPrefix: typeof currentKey === "string" ? currentKey.substring(0, 15) : "(none)",
-            envPrefix: oauthToken.substring(0, 15),
-          });
+          log.warn(
+            `streamFn: REPLACING apiKey — old=${keyPrefix} env=${oauthToken.substring(0, 15)}`,
+          );
           return baseStreamFn(model, context, { ...options, apiKey: oauthToken });
         }
 

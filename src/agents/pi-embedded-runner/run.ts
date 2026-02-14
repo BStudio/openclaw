@@ -353,13 +353,9 @@ export async function runEmbeddedPiAgent(
           apiKeyInfo = { ...apiKeyInfo, mode: "token" };
         }
 
-        log.info("applyApiKeyInfo resolved", {
-          provider: model.provider,
-          mode: apiKeyInfo.mode,
-          source: apiKeyInfo.source,
-          keyPrefix: resolvedKey.substring(0, 15),
-          profileId: resolvedProfileId,
-        });
+        log.info(
+          `applyApiKeyInfo resolved: provider=${model.provider} mode=${apiKeyInfo.mode} source=${apiKeyInfo.source} keyPrefix=${resolvedKey.substring(0, 15)} profile=${resolvedProfileId ?? "none"}`,
+        );
 
         if (model.provider === "github-copilot") {
           const { resolveCopilotApiToken } =
