@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import type { startGatewayServer } from "../../gateway/server.js";
 import type { defaultRuntime } from "../../runtime.js";
 import { acquireGatewayLock } from "../../infra/gateway-lock.js";
@@ -134,9 +135,45 @@ export async function runGatewayLoop(params: {
     while (true) {
       onIteration();
       server = await params.start();
+
+      // Session-epoch watcher: detect when a new Claude Code session writes a
+      // new epoch to the shared filesystem.  The old gateway (running in an
+      // isolated process namespace) can't be killed via pkill, so it watches
+      // the epoch file and shuts itself down when it changes.
+      let epochInterval: ReturnType<typeof setInterval> | null = null;
+      const EPOCH_FILE = "/tmp/openclaw-session-epoch";
+      try {
+        const startEpoch = readFileSync(EPOCH_FILE, "utf-8").trim();
+        if (startEpoch) {
+          epochInterval = setInterval(() => {
+            try {
+              const current = readFileSync(EPOCH_FILE, "utf-8").trim();
+              if (current !== startEpoch) {
+                if (epochInterval) {
+                  clearInterval(epochInterval);
+                }
+                epochInterval = null;
+                gatewayLog.info("session epoch changed; shutting down for new session");
+                request("stop", "session-epoch-changed");
+              }
+            } catch {
+              /* ignore read errors */
+            }
+          }, 2000);
+        }
+      } catch {
+        /* no epoch file = no watching (not running from session-start hook) */
+      }
+
       await new Promise<void>((resolve) => {
         restartResolver = resolve;
       });
+
+      // Clean up epoch watcher on in-process restart (SIGUSR1)
+      if (epochInterval) {
+        clearInterval(epochInterval);
+        epochInterval = null;
+      }
     }
   } finally {
     await lock?.release();

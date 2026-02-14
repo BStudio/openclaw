@@ -99,23 +99,29 @@ fi
 node "$CLAUDE_PROJECT_DIR/.claude/hooks/auth-diagnostic.mjs" 2>&1 | tee /tmp/openclaw-auth-diag.log >&2 || true
 
 # --- (Re)start the gateway with the current session's token ---
-# Always kill the old gateway so the new process inherits the fresh
-# ANTHROPIC_OAUTH_TOKEN.  When a new Claude Code session starts in the
-# same container the old token is revoked, so the old gateway would 401.
+# Write a session epoch so the OLD gateway (in an isolated session) can
+# detect that a newer session exists and shut itself down gracefully.
+# This solves cross-session shutdown when pgrep/pkill can't see other
+# session's processes.
+EPOCH_FILE="/tmp/openclaw-session-epoch"
+date +%s%N > "$EPOCH_FILE"
+echo "[session-start] Wrote session epoch to $EPOCH_FILE" >&2
+
+# Kill any same-session gateway (may exist on resume hooks).
 if pgrep -f "openclaw.*gateway" > /dev/null 2>&1; then
-  echo "[session-start] Killing existing gateway (stale token)…" >&2
+  echo "[session-start] Killing same-session gateway…" >&2
   pkill -f "openclaw.*gateway" || true
-  # Wait up to 5s for graceful shutdown (closes Telegram long-poll)
-  for _i in 1 2 3 4 5; do
+  for _i in 1 2 3; do
     pgrep -f "openclaw.*gateway" > /dev/null 2>&1 || break
     sleep 1
   done
-  # Force-kill stragglers
   pkill -9 -f "openclaw.*gateway" 2>/dev/null || true
-  # Extra pause so Telegram servers release the old getUpdates connection
-  sleep 2
-  echo "[session-start] Old gateway stopped" >&2
 fi
+
+# Brief pause for old gateway (cross-session) to notice the epoch change
+# and close its Telegram connection gracefully.
+sleep 3
+
 nohup node "$CLAUDE_PROJECT_DIR/dist/index.js" gateway > /tmp/openclaw-gateway.log 2>&1 &
 echo "[session-start] OpenClaw Gateway started (PID $!)" >&2
 
