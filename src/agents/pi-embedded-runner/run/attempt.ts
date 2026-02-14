@@ -570,6 +570,39 @@ export async function runEmbeddedAttempt(
       // stale due to server-side token rotation, swap it for the fresh token
       // read from disk.
       const baseStreamFn = activeSession.agent.streamFn;
+
+      const logStreamErrors = (
+        stream: ReturnType<typeof baseStreamFn>,
+        label: string,
+      ): ReturnType<typeof baseStreamFn> => {
+        const attachErrorLogger = (s: { result(): Promise<unknown> }) => {
+          s.result().catch((error: unknown) => {
+            const status =
+              error && typeof error === "object" && "status" in error
+                ? String((error as { status: unknown }).status)
+                : "?";
+            const message = error instanceof Error ? error.message : JSON.stringify(error);
+            log.error(`streamFn ${label} ERROR: status=${status} message=${message}`);
+            if (error && typeof error === "object" && "error" in error) {
+              log.error(
+                `streamFn ${label} body: ${JSON.stringify((error as { error: unknown }).error).substring(0, 500)}`,
+              );
+            }
+          });
+        };
+
+        if (stream && typeof (stream as { result?: unknown }).result === "function") {
+          attachErrorLogger(stream as { result(): Promise<unknown> });
+        } else if (stream instanceof Promise) {
+          stream.then(
+            (resolved) => attachErrorLogger(resolved as { result(): Promise<unknown> }),
+            (err: unknown) =>
+              log.error(`streamFn ${label} PROMISE ERROR: ${(err as Error)?.message ?? err}`),
+          );
+        }
+        return stream;
+      };
+
       activeSession.agent.streamFn = (model, context, options) => {
         const currentKey = options?.apiKey;
         const isSiKey = typeof currentKey === "string" && currentKey.includes("sk-ant-si-");
@@ -589,7 +622,10 @@ export async function runEmbeddedAttempt(
               `streamFn: REPLACING stale apiKey with fresh token from disk (old=${keyPrefix} new=${freshToken.substring(0, 15)})`,
             );
             process.env.ANTHROPIC_OAUTH_TOKEN = freshToken;
-            return baseStreamFn(model, context, { ...options, apiKey: freshToken });
+            return logStreamErrors(
+              baseStreamFn(model, context, { ...options, apiKey: freshToken }),
+              "fresh-token",
+            );
           }
 
           // Layer 2: If no token file but env var differs, use env var.
@@ -598,11 +634,14 @@ export async function runEmbeddedAttempt(
             log.warn(
               `streamFn: REPLACING apiKey — old=${keyPrefix} env=${oauthToken.substring(0, 15)}`,
             );
-            return baseStreamFn(model, context, { ...options, apiKey: oauthToken });
+            return logStreamErrors(
+              baseStreamFn(model, context, { ...options, apiKey: oauthToken }),
+              "env-swap",
+            );
           }
         }
 
-        return baseStreamFn(model, context, options);
+        return logStreamErrors(baseStreamFn(model, context, options), "default");
       };
 
       applyExtraParamsToAgent(

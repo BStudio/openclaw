@@ -59,41 +59,71 @@ log(
 log(`ANTHROPIC_API_KEY set: ${!!process.env.ANTHROPIC_API_KEY}`);
 log(`ANTHROPIC_BASE_URL: ${process.env.ANTHROPIC_BASE_URL || "N/A"}`);
 
-// 4. Test actual API call
-log("--- Step 4: API call test ---");
+// 4. Test actual API calls
+log("--- Step 4: API call tests ---");
 const token =
   process.env.ANTHROPIC_OAUTH_TOKEN ||
   (existsSync(TOKEN_FILE) ? readFileSync(TOKEN_FILE, "utf-8").trim() : null);
 
 if (token) {
-  const body = JSON.stringify({
-    model: "claude-haiku-4-5-20251001",
-    max_tokens: 5,
-    messages: [{ role: "user", content: "Say ok" }],
-  });
+  const testModels = ["claude-haiku-4-5-20251001", "claude-opus-4-6"];
 
-  // Test Bearer auth
+  for (const testModel of testModels) {
+    const body = JSON.stringify({
+      model: testModel,
+      max_tokens: 5,
+      messages: [{ role: "user", content: "Say ok" }],
+    });
+
+    // Test Bearer auth (correct for sk-ant-si- tokens)
+    try {
+      const resp = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+          "anthropic-version": "2023-06-01",
+          "anthropic-beta":
+            "claude-code-20250219,oauth-2025-04-20,fine-grained-tool-streaming-2025-05-14,interleaved-thinking-2025-05-14",
+        },
+        body,
+      });
+      log(`Bearer [${testModel}]: ${resp.status} ${resp.ok ? "OK" : "FAIL"}`);
+      if (!resp.ok) {
+        const err = await resp.text();
+        log(`  error: ${err.substring(0, 300)}`);
+      }
+    } catch (e) {
+      log(`Bearer [${testModel}] fetch error: ${e.message}`);
+    }
+  }
+
+  // Test x-api-key auth (should FAIL for sk-ant-si- tokens)
   try {
+    const body = JSON.stringify({
+      model: "claude-haiku-4-5-20251001",
+      max_tokens: 5,
+      messages: [{ role: "user", content: "Say ok" }],
+    });
     const resp = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
+        "x-api-key": token,
         "anthropic-version": "2023-06-01",
-        "anthropic-beta": "claude-code-20250219,oauth-2025-04-20",
       },
       body,
     });
-    log(`Bearer auth: ${resp.status} ${resp.ok ? "OK" : "FAIL"}`);
+    log(`x-api-key auth: ${resp.status} (expected 401 for si tokens)`);
     if (!resp.ok) {
       const err = await resp.text();
-      log(`Bearer error: ${err.substring(0, 200)}`);
+      log(`  error: ${err.substring(0, 300)}`);
     }
   } catch (e) {
-    log(`Bearer fetch error: ${e.message}`);
+    log(`x-api-key fetch error: ${e.message}`);
   }
 } else {
-  log("NO TOKEN AVAILABLE - cannot test API call");
+  log("NO TOKEN AVAILABLE - cannot test API calls");
 }
 
 log("--- Diagnostic complete ---");
