@@ -13,6 +13,3 @@ pnpm install
 
 # Build the project so CLI, tests, and linter work
 pnpm build
-
-# Set up C3-PO conversation bridge (IPC dir + inject helper)
-bash "$CLAUDE_PROJECT_DIR/scripts/c3po-bridge-setup.sh"
