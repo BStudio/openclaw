@@ -1,281 +1,100 @@
-import type {
-  PluginHookSessionStartEvent,
-  PluginHookSessionEndEvent,
-  PluginHookGatewayStopEvent,
-  PluginHookSessionContext,
-  PluginHookGatewayContext,
-} from "openclaw/plugin-sdk";
-import { exec } from "node:child_process";
-import fs from "node:fs/promises";
-import path from "node:path";
-import { promisify } from "node:util";
+/**
+ * Session lifecycle hook — Claude Code container keep-alive
+ *
+ * Keeps Claude Code container sessions alive by detecting OpenClaw agent activity.
+ * Runs as an in-process timer on gateway:startup (no separate process needed).
+ *
+ * Only activates in Claude Code sessions (detected via CLAUDECODE env var).
+ */
 
-const execAsync = promisify(exec);
+import type { OpenClawConfig } from "../../../config/config.js";
+import type { HookHandler } from "../../hooks.js";
+import { resolveStorePath } from "../../../config/sessions/paths.js";
+import { loadSessionStore } from "../../../config/sessions/store.js";
 
-const ACTIVITY_MONITOR_PID_FILE = "/tmp/claude-code-activity-monitor.pid";
-const ACTIVITY_MONITOR_LOG_FILE = "/tmp/claude-code-activity-monitor.log";
-const HOOK_LOG_FILE = "/tmp/session-lifecycle-hook.log";
-const STATUS_FILE = "/tmp/session-lifecycle-status.json";
+const LOG_FILE = "/tmp/claude-code-activity-monitor.log";
+const CHECK_INTERVAL_MS = 30_000; // 30 seconds
+const PING_INTERVAL_MS = 60_000; // 60 seconds
+const IDLE_THRESHOLD_MS = 3 * 60_000; // 3 minutes
 
-function timestamp(): string {
-  return new Date().toISOString();
-}
+let activityTimer: ReturnType<typeof setInterval> | null = null;
+let lastPingTime = 0;
 
-function shortTimestamp(): string {
-  return new Date().toTimeString().slice(0, 8);
-}
-
-async function logToFile(message: string): Promise<void> {
+function logToFile(message: string): void {
   try {
-    const logEntry = `[${timestamp()}] ${message}\n`;
-    await fs.appendFile(HOOK_LOG_FILE, logEntry);
+    const fs = require("node:fs");
+    fs.appendFileSync(LOG_FILE, `[${new Date().toISOString()}] ${message}\n`);
   } catch {
-    // Silently fail if we can't write to log file
+    // silently fail
   }
 }
 
-function logBoth(message: string): void {
-  console.log(message);
-  void logToFile(message);
-}
-
-async function updateStatusFile(status: {
-  event: "session_start" | "session_end" | "gateway_stop";
-  sessionId?: string;
-  timestamp: string;
-  daemonStatus?: string;
-  daemonPid?: number;
-  duration?: string;
-  messageCount?: number;
-  resumedFrom?: string;
-}): Promise<void> {
+function checkAndPing(cfg: OpenClawConfig): void {
   try {
-    await fs.writeFile(STATUS_FILE, JSON.stringify(status, null, 2));
-  } catch {
-    // Silently fail if we can't write status file
-  }
-}
+    const storePath = resolveStorePath(cfg.session?.store);
+    const store = loadSessionStore(storePath, { skipCache: true });
+    const sessionKeys = Object.keys(store);
 
-function formatDuration(ms: number): string {
-  const seconds = Math.floor(ms / 1000);
-  const minutes = Math.floor(seconds / 60);
-  const hours = Math.floor(minutes / 60);
+    if (sessionKeys.length === 0) {
+      return;
+    }
 
-  if (hours > 0) {
-    return `${hours}h ${minutes % 60}m ${seconds % 60}s`;
-  }
-  if (minutes > 0) {
-    return `${minutes}m ${seconds % 60}s`;
-  }
-  return `${seconds}s`;
-}
+    const now = Date.now();
+    const cutoff = now - IDLE_THRESHOLD_MS;
+    let activeCount = 0;
 
-async function startActivityMonitor(): Promise<{ started: boolean; pid?: number; error?: string }> {
-  try {
-    // Check if already running
-    try {
-      const pidContent = await fs.readFile(ACTIVITY_MONITOR_PID_FILE, "utf-8");
-      const pid = parseInt(pidContent.trim(), 10);
-
-      // Check if process is alive
-      try {
-        process.kill(pid, 0);
-        return { started: false, pid, error: "Already running" };
-      } catch {
-        // Process not running, remove stale PID file
-        await fs.unlink(ACTIVITY_MONITOR_PID_FILE).catch(() => {});
+    for (const key of sessionKeys) {
+      const entry = store[key];
+      if (entry?.updatedAt && entry.updatedAt >= cutoff) {
+        activeCount++;
       }
-    } catch {
-      // PID file doesn't exist, proceed to start
     }
 
-    // Find OpenClaw project root (where scripts/ is located)
-    const projectRoot = process.cwd();
-    const scriptPath = path.join(projectRoot, "scripts/claude-code-activity-monitor.ts");
-
-    // Check if script exists
-    try {
-      await fs.access(scriptPath);
-    } catch {
-      return { started: false, error: "Script not found" };
+    if (activeCount > 0 && now - lastPingTime >= PING_INTERVAL_MS) {
+      // Write keepalive ping to stdout — this signals activity to Claude Code
+      const ts = new Date().toISOString();
+      process.stdout.write(`[openclaw-keepalive] ${ts} (${activeCount} active)\n`);
+      lastPingTime = now;
+      logToFile(`ping: ${activeCount} active sessions`);
     }
-
-    // Detect if we're in a Claude Code session (check for known env vars or container indicators)
-    const isClaudeCodeSession =
-      process.env.CLAUDECODE ||
-      process.env.CLAUDE_CODE_SESSION_ID ||
-      process.env.CODESPACE_NAME ||
-      process.env.GITPOD_WORKSPACE_ID ||
-      false;
-
-    if (!isClaudeCodeSession) {
-      // Not in a Claude Code session, skip activity monitor
-      return { started: false, error: "Not in Claude Code session (skipped)" };
-    }
-
-    // Start the activity monitor in the background
-    // Use tsx to run TypeScript directly, with verbose output for debugging
-    const { stdout } = await execAsync(
-      `nohup node --import tsx "${scriptPath}" --verbose > "${ACTIVITY_MONITOR_LOG_FILE}" 2>&1 & echo $!`,
-      {
-        cwd: projectRoot,
-      },
-    );
-
-    const pid = parseInt(stdout.trim(), 10);
-
-    if (!isNaN(pid)) {
-      await fs.writeFile(ACTIVITY_MONITOR_PID_FILE, pid.toString());
-      return { started: true, pid };
-    }
-
-    return { started: false, error: "Failed to start activity monitor" };
   } catch (err) {
-    return { started: false, error: String(err) };
+    logToFile(`check error: ${String(err)}`);
   }
 }
 
-async function stopActivityMonitor(): Promise<{ stopped: boolean; error?: string }> {
-  try {
-    // Read PID file
-    const pidContent = await fs.readFile(ACTIVITY_MONITOR_PID_FILE, "utf-8");
-    const pid = parseInt(pidContent.trim(), 10);
-
-    if (isNaN(pid)) {
-      return { stopped: false, error: "Invalid PID" };
-    }
-
-    // Kill the process
-    try {
-      process.kill(pid, "SIGTERM");
-      // Give it a moment to die gracefully
-      await new Promise((resolve) => setTimeout(resolve, 500));
-
-      // Check if still alive
-      try {
-        process.kill(pid, 0);
-        // Still alive, force kill
-        process.kill(pid, "SIGKILL");
-      } catch {
-        // Process is dead
-      }
-
-      // Remove PID file
-      await fs.unlink(ACTIVITY_MONITOR_PID_FILE).catch(() => {});
-
-      return { stopped: true };
-    } catch {
-      // Process doesn't exist
-      await fs.unlink(ACTIVITY_MONITOR_PID_FILE).catch(() => {});
-      return { stopped: true };
-    }
-  } catch {
-    // PID file doesn't exist
-    return { stopped: false, error: "Not running" };
-  }
-}
-
-// Session start hook
-export async function session_start(
-  event: PluginHookSessionStartEvent,
-  _ctx: PluginHookSessionContext,
-): Promise<void> {
-  const sessionInfo = event.resumedFrom ? `(resumed from ${event.resumedFrom})` : "";
-  logBoth(`🚀 [${shortTimestamp()}] Session started: ${event.sessionId} ${sessionInfo}`);
-
-  // Start Claude Code activity monitor
-  const result = await startActivityMonitor();
-
-  let daemonStatus = "";
-  if (result.started) {
-    daemonStatus = `STARTED (PID: ${result.pid})`;
-    logBoth(`   Claude Code activity monitor: ${daemonStatus}`);
-  } else if (result.error === "Already running") {
-    daemonStatus = `ALREADY RUNNING (PID: ${result.pid})`;
-    logBoth(`   Claude Code activity monitor: ${daemonStatus}`);
-  } else {
-    daemonStatus = `SKIPPED (${result.error})`;
-    // Don't log as error if it's just skipped due to not being in Claude Code
-    if (result.error?.includes("Not in Claude Code")) {
-      logBoth(`   Claude Code activity monitor: ${daemonStatus}`);
-    } else {
-      logBoth(`   Claude Code activity monitor: FAILED (${result.error})`);
-    }
+const handler: HookHandler = async (event) => {
+  if (event.type !== "gateway" || event.action !== "startup") {
+    return;
   }
 
-  // Update status file
-  await updateStatusFile({
-    event: "session_start",
-    sessionId: event.sessionId,
-    timestamp: timestamp(),
-    daemonStatus,
-    daemonPid: result.pid,
-    resumedFrom: event.resumedFrom,
-  });
-}
+  // Only activate in Claude Code sessions
+  const isClaudeCode = process.env.CLAUDECODE || process.env.CLAUDE_CODE_SESSION_ID || false;
 
-// Session end hook
-export async function session_end(
-  event: PluginHookSessionEndEvent,
-  _ctx: PluginHookSessionContext,
-): Promise<void> {
-  const duration = event.durationMs ? formatDuration(event.durationMs) : "unknown";
-
-  logBoth(`👋 [${shortTimestamp()}] Session ended: ${event.sessionId}`);
-  logBoth(`   Duration: ${duration}`);
-  logBoth(`   Messages: ${event.messageCount}`);
-
-  // Stop Claude Code activity monitor
-  const result = await stopActivityMonitor();
-
-  let daemonStatus = "";
-  if (result.stopped) {
-    daemonStatus = "STOPPED";
-    logBoth(`   Claude Code activity monitor: ${daemonStatus}`);
-  } else {
-    daemonStatus = result.error || "Not running";
-    logBoth(`   Claude Code activity monitor: ${daemonStatus}`);
+  if (!isClaudeCode) {
+    logToFile("skipped: not a Claude Code session");
+    return;
   }
 
-  // Update status file
-  await updateStatusFile({
-    event: "session_end",
-    sessionId: event.sessionId,
-    timestamp: timestamp(),
-    daemonStatus,
-    duration,
-    messageCount: event.messageCount,
-  });
-}
-
-// Gateway stop hook
-export async function gateway_stop(
-  event: PluginHookGatewayStopEvent,
-  _ctx: PluginHookGatewayContext,
-): Promise<void> {
-  const reason = event.reason ? ` (${event.reason})` : "";
-  logBoth(`🛑 [${shortTimestamp()}] Gateway stopping${reason}`);
-
-  // Stop Claude Code activity monitor
-  const result = await stopActivityMonitor();
-
-  let daemonStatus = "";
-  if (result.stopped) {
-    daemonStatus = "STOPPED";
-    logBoth(`   Claude Code activity monitor: ${daemonStatus}`);
+  // Don't start twice
+  if (activityTimer) {
+    logToFile("skipped: already running");
+    return;
   }
 
-  // Update status file
-  await updateStatusFile({
-    event: "gateway_stop",
-    timestamp: timestamp(),
-    daemonStatus,
-  });
-}
+  const ctx = event.context as { cfg?: OpenClawConfig } | undefined;
+  const cfg = ctx?.cfg;
+  if (!cfg) {
+    logToFile("skipped: no config in hook context");
+    return;
+  }
 
-// Default export for backward compatibility
-export default {
-  session_start,
-  session_end,
-  gateway_stop,
+  logToFile("starting activity monitor");
+
+  activityTimer = setInterval(() => checkAndPing(cfg), CHECK_INTERVAL_MS);
+  activityTimer.unref(); // don't block gateway shutdown
+
+  // Do an initial check immediately
+  checkAndPing(cfg);
 };
+
+export default handler;
