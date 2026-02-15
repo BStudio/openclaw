@@ -102,7 +102,8 @@ async function startActivityMonitor(): Promise<{ started: boolean; pid?: number;
 
     // Detect if we're in a Claude Code session (check for known env vars or container indicators)
     const isClaudeCodeSession =
-      process.env.CLAUDE_CODE_SESSION ||
+      process.env.CLAUDECODE ||
+      process.env.CLAUDE_CODE_SESSION_ID ||
       process.env.CODESPACE_NAME ||
       process.env.GITPOD_WORKSPACE_ID ||
       false;
