@@ -12,8 +12,8 @@ import { promisify } from "node:util";
 
 const execAsync = promisify(exec);
 
-const PID_FILE = "/tmp/session-keep-alive.pid";
-const LOG_FILE = "/tmp/session-keep-alive.log";
+const ACTIVITY_MONITOR_PID_FILE = "/tmp/claude-code-activity-monitor.pid";
+const ACTIVITY_MONITOR_LOG_FILE = "/tmp/claude-code-activity-monitor.log";
 const HOOK_LOG_FILE = "/tmp/session-lifecycle-hook.log";
 const STATUS_FILE = "/tmp/session-lifecycle-status.json";
 
@@ -70,11 +70,11 @@ function formatDuration(ms: number): string {
   return `${seconds}s`;
 }
 
-async function startKeepAliveDaemon(): Promise<{ started: boolean; pid?: number; error?: string }> {
+async function startActivityMonitor(): Promise<{ started: boolean; pid?: number; error?: string }> {
   try {
     // Check if already running
     try {
-      const pidContent = await fs.readFile(PID_FILE, "utf-8");
+      const pidContent = await fs.readFile(ACTIVITY_MONITOR_PID_FILE, "utf-8");
       const pid = parseInt(pidContent.trim(), 10);
 
       // Check if process is alive
@@ -83,7 +83,7 @@ async function startKeepAliveDaemon(): Promise<{ started: boolean; pid?: number;
         return { started: false, pid, error: "Already running" };
       } catch {
         // Process not running, remove stale PID file
-        await fs.unlink(PID_FILE).catch(() => {});
+        await fs.unlink(ACTIVITY_MONITOR_PID_FILE).catch(() => {});
       }
     } catch {
       // PID file doesn't exist, proceed to start
@@ -91,7 +91,7 @@ async function startKeepAliveDaemon(): Promise<{ started: boolean; pid?: number;
 
     // Find OpenClaw project root (where scripts/ is located)
     const projectRoot = process.cwd();
-    const scriptPath = path.join(projectRoot, "scripts/session-keep-alive-daemon.sh");
+    const scriptPath = path.join(projectRoot, "scripts/claude-code-activity-monitor.ts");
 
     // Check if script exists
     try {
@@ -100,9 +100,22 @@ async function startKeepAliveDaemon(): Promise<{ started: boolean; pid?: number;
       return { started: false, error: "Script not found" };
     }
 
-    // Start the daemon in the background
+    // Detect if we're in a Claude Code session (check for known env vars or container indicators)
+    const isClaudeCodeSession =
+      process.env.CLAUDE_CODE_SESSION ||
+      process.env.CODESPACE_NAME ||
+      process.env.GITPOD_WORKSPACE_ID ||
+      false;
+
+    if (!isClaudeCodeSession) {
+      // Not in a Claude Code session, skip activity monitor
+      return { started: false, error: "Not in Claude Code session (skipped)" };
+    }
+
+    // Start the activity monitor in the background
+    // Use tsx to run TypeScript directly, with verbose output for debugging
     const { stdout } = await execAsync(
-      `nohup bash "${scriptPath}" 60 > "${LOG_FILE}" 2>&1 & echo $!`,
+      `nohup node --import tsx "${scriptPath}" --verbose > "${ACTIVITY_MONITOR_LOG_FILE}" 2>&1 & echo $!`,
       {
         cwd: projectRoot,
       },
@@ -111,20 +124,20 @@ async function startKeepAliveDaemon(): Promise<{ started: boolean; pid?: number;
     const pid = parseInt(stdout.trim(), 10);
 
     if (!isNaN(pid)) {
-      await fs.writeFile(PID_FILE, pid.toString());
+      await fs.writeFile(ACTIVITY_MONITOR_PID_FILE, pid.toString());
       return { started: true, pid };
     }
 
-    return { started: false, error: "Failed to start daemon" };
+    return { started: false, error: "Failed to start activity monitor" };
   } catch (err) {
     return { started: false, error: String(err) };
   }
 }
 
-async function stopKeepAliveDaemon(): Promise<{ stopped: boolean; error?: string }> {
+async function stopActivityMonitor(): Promise<{ stopped: boolean; error?: string }> {
   try {
     // Read PID file
-    const pidContent = await fs.readFile(PID_FILE, "utf-8");
+    const pidContent = await fs.readFile(ACTIVITY_MONITOR_PID_FILE, "utf-8");
     const pid = parseInt(pidContent.trim(), 10);
 
     if (isNaN(pid)) {
@@ -147,12 +160,12 @@ async function stopKeepAliveDaemon(): Promise<{ stopped: boolean; error?: string
       }
 
       // Remove PID file
-      await fs.unlink(PID_FILE).catch(() => {});
+      await fs.unlink(ACTIVITY_MONITOR_PID_FILE).catch(() => {});
 
       return { stopped: true };
     } catch {
       // Process doesn't exist
-      await fs.unlink(PID_FILE).catch(() => {});
+      await fs.unlink(ACTIVITY_MONITOR_PID_FILE).catch(() => {});
       return { stopped: true };
     }
   } catch {
@@ -169,19 +182,24 @@ export async function session_start(
   const sessionInfo = event.resumedFrom ? `(resumed from ${event.resumedFrom})` : "";
   logBoth(`🚀 [${shortTimestamp()}] Session started: ${event.sessionId} ${sessionInfo}`);
 
-  // Start keep-alive daemon
-  const result = await startKeepAliveDaemon();
+  // Start Claude Code activity monitor
+  const result = await startActivityMonitor();
 
   let daemonStatus = "";
   if (result.started) {
     daemonStatus = `STARTED (PID: ${result.pid})`;
-    logBoth(`   Keep-alive daemon: ${daemonStatus}`);
+    logBoth(`   Claude Code activity monitor: ${daemonStatus}`);
   } else if (result.error === "Already running") {
     daemonStatus = `ALREADY RUNNING (PID: ${result.pid})`;
-    logBoth(`   Keep-alive daemon: ${daemonStatus}`);
+    logBoth(`   Claude Code activity monitor: ${daemonStatus}`);
   } else {
-    daemonStatus = `FAILED (${result.error})`;
-    logBoth(`   Keep-alive daemon: ${daemonStatus}`);
+    daemonStatus = `SKIPPED (${result.error})`;
+    // Don't log as error if it's just skipped due to not being in Claude Code
+    if (result.error?.includes("Not in Claude Code")) {
+      logBoth(`   Claude Code activity monitor: ${daemonStatus}`);
+    } else {
+      logBoth(`   Claude Code activity monitor: FAILED (${result.error})`);
+    }
   }
 
   // Update status file
@@ -206,16 +224,16 @@ export async function session_end(
   logBoth(`   Duration: ${duration}`);
   logBoth(`   Messages: ${event.messageCount}`);
 
-  // Stop keep-alive daemon
-  const result = await stopKeepAliveDaemon();
+  // Stop Claude Code activity monitor
+  const result = await stopActivityMonitor();
 
   let daemonStatus = "";
   if (result.stopped) {
     daemonStatus = "STOPPED";
-    logBoth(`   Keep-alive daemon: ${daemonStatus}`);
+    logBoth(`   Claude Code activity monitor: ${daemonStatus}`);
   } else {
     daemonStatus = result.error || "Not running";
-    logBoth(`   Keep-alive daemon: ${daemonStatus}`);
+    logBoth(`   Claude Code activity monitor: ${daemonStatus}`);
   }
 
   // Update status file
@@ -237,13 +255,13 @@ export async function gateway_stop(
   const reason = event.reason ? ` (${event.reason})` : "";
   logBoth(`🛑 [${shortTimestamp()}] Gateway stopping${reason}`);
 
-  // Stop keep-alive daemon
-  const result = await stopKeepAliveDaemon();
+  // Stop Claude Code activity monitor
+  const result = await stopActivityMonitor();
 
   let daemonStatus = "";
   if (result.stopped) {
     daemonStatus = "STOPPED";
-    logBoth(`   Keep-alive daemon: ${daemonStatus}`);
+    logBoth(`   Claude Code activity monitor: ${daemonStatus}`);
   }
 
   // Update status file
