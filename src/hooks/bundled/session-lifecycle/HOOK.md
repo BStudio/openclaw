@@ -30,6 +30,8 @@ Provides notifications for session start/end events and integrates with the sess
 - 👋 Stops keep-alive daemon when session ends
 - 📊 Reports session duration and message count
 - 🔔 Visual notifications with timestamps
+- 📝 Logs all events to `/tmp/session-lifecycle-hook.log` for monitoring
+- 📄 Maintains current status in `/tmp/session-lifecycle-status.json`
 
 ## Requirements
 
@@ -44,7 +46,35 @@ No configuration needed. The hook automatically:
 - Stops the daemon on session end or gateway stop
 - Logs all events to stdout
 
+## Monitoring Hook Activity
+
+### Real-time log monitoring
+
+```bash
+# Watch hook events in real-time
+tail -f /tmp/session-lifecycle-hook.log
+```
+
+### Check current session status
+
+```bash
+# View current session status
+cat /tmp/session-lifecycle-status.json
+
+# Or with pretty formatting
+jq . /tmp/session-lifecycle-status.json
+```
+
+### Monitor keep-alive daemon
+
+```bash
+# Watch daemon activity
+tail -f /tmp/session-keep-alive.log
+```
+
 ## Example Output
+
+**Console/Log Output:**
 
 ```
 🚀 [03:15:00] Session started: abc123def456
@@ -54,4 +84,17 @@ No configuration needed. The hook automatically:
    Duration: 30m 30s
    Messages: 42
    Keep-alive daemon: STOPPED
+```
+
+**Status File (`/tmp/session-lifecycle-status.json`):**
+
+```json
+{
+  "event": "session_start",
+  "sessionId": "abc123def456",
+  "timestamp": "2026-02-15T03:15:00.123Z",
+  "daemonStatus": "STARTED (PID: 7890)",
+  "daemonPid": 7890,
+  "resumedFrom": "xyz789"
+}
 ```

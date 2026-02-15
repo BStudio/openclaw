@@ -14,9 +14,46 @@ const execAsync = promisify(exec);
 
 const PID_FILE = "/tmp/session-keep-alive.pid";
 const LOG_FILE = "/tmp/session-keep-alive.log";
+const HOOK_LOG_FILE = "/tmp/session-lifecycle-hook.log";
+const STATUS_FILE = "/tmp/session-lifecycle-status.json";
 
 function timestamp(): string {
+  return new Date().toISOString();
+}
+
+function shortTimestamp(): string {
   return new Date().toTimeString().slice(0, 8);
+}
+
+async function logToFile(message: string): Promise<void> {
+  try {
+    const logEntry = `[${timestamp()}] ${message}\n`;
+    await fs.appendFile(HOOK_LOG_FILE, logEntry);
+  } catch {
+    // Silently fail if we can't write to log file
+  }
+}
+
+function logBoth(message: string): void {
+  console.log(message);
+  void logToFile(message);
+}
+
+async function updateStatusFile(status: {
+  event: "session_start" | "session_end" | "gateway_stop";
+  sessionId?: string;
+  timestamp: string;
+  daemonStatus?: string;
+  daemonPid?: number;
+  duration?: string;
+  messageCount?: number;
+  resumedFrom?: string;
+}): Promise<void> {
+  try {
+    await fs.writeFile(STATUS_FILE, JSON.stringify(status, null, 2));
+  } catch {
+    // Silently fail if we can't write status file
+  }
 }
 
 function formatDuration(ms: number): string {
@@ -130,18 +167,32 @@ export async function session_start(
   _ctx: PluginHookSessionContext,
 ): Promise<void> {
   const sessionInfo = event.resumedFrom ? `(resumed from ${event.resumedFrom})` : "";
-  console.log(`🚀 [${timestamp()}] Session started: ${event.sessionId} ${sessionInfo}`);
+  logBoth(`🚀 [${shortTimestamp()}] Session started: ${event.sessionId} ${sessionInfo}`);
 
   // Start keep-alive daemon
   const result = await startKeepAliveDaemon();
 
+  let daemonStatus = "";
   if (result.started) {
-    console.log(`   Keep-alive daemon: STARTED (PID: ${result.pid})`);
+    daemonStatus = `STARTED (PID: ${result.pid})`;
+    logBoth(`   Keep-alive daemon: ${daemonStatus}`);
   } else if (result.error === "Already running") {
-    console.log(`   Keep-alive daemon: ALREADY RUNNING (PID: ${result.pid})`);
+    daemonStatus = `ALREADY RUNNING (PID: ${result.pid})`;
+    logBoth(`   Keep-alive daemon: ${daemonStatus}`);
   } else {
-    console.log(`   Keep-alive daemon: FAILED (${result.error})`);
+    daemonStatus = `FAILED (${result.error})`;
+    logBoth(`   Keep-alive daemon: ${daemonStatus}`);
   }
+
+  // Update status file
+  await updateStatusFile({
+    event: "session_start",
+    sessionId: event.sessionId,
+    timestamp: timestamp(),
+    daemonStatus,
+    daemonPid: result.pid,
+    resumedFrom: event.resumedFrom,
+  });
 }
 
 // Session end hook
@@ -151,18 +202,31 @@ export async function session_end(
 ): Promise<void> {
   const duration = event.durationMs ? formatDuration(event.durationMs) : "unknown";
 
-  console.log(`👋 [${timestamp()}] Session ended: ${event.sessionId}`);
-  console.log(`   Duration: ${duration}`);
-  console.log(`   Messages: ${event.messageCount}`);
+  logBoth(`👋 [${shortTimestamp()}] Session ended: ${event.sessionId}`);
+  logBoth(`   Duration: ${duration}`);
+  logBoth(`   Messages: ${event.messageCount}`);
 
   // Stop keep-alive daemon
   const result = await stopKeepAliveDaemon();
 
+  let daemonStatus = "";
   if (result.stopped) {
-    console.log(`   Keep-alive daemon: STOPPED`);
+    daemonStatus = "STOPPED";
+    logBoth(`   Keep-alive daemon: ${daemonStatus}`);
   } else {
-    console.log(`   Keep-alive daemon: ${result.error || "Not running"}`);
+    daemonStatus = result.error || "Not running";
+    logBoth(`   Keep-alive daemon: ${daemonStatus}`);
   }
+
+  // Update status file
+  await updateStatusFile({
+    event: "session_end",
+    sessionId: event.sessionId,
+    timestamp: timestamp(),
+    daemonStatus,
+    duration,
+    messageCount: event.messageCount,
+  });
 }
 
 // Gateway stop hook
@@ -171,14 +235,23 @@ export async function gateway_stop(
   _ctx: PluginHookGatewayContext,
 ): Promise<void> {
   const reason = event.reason ? ` (${event.reason})` : "";
-  console.log(`🛑 [${timestamp()}] Gateway stopping${reason}`);
+  logBoth(`🛑 [${shortTimestamp()}] Gateway stopping${reason}`);
 
   // Stop keep-alive daemon
   const result = await stopKeepAliveDaemon();
 
+  let daemonStatus = "";
   if (result.stopped) {
-    console.log(`   Keep-alive daemon: STOPPED`);
+    daemonStatus = "STOPPED";
+    logBoth(`   Keep-alive daemon: ${daemonStatus}`);
   }
+
+  // Update status file
+  await updateStatusFile({
+    event: "gateway_stop",
+    timestamp: timestamp(),
+    daemonStatus,
+  });
 }
 
 // Default export for backward compatibility
