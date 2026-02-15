@@ -310,7 +310,36 @@ pkill -f session-keep-alive-daemon
 
 ## Integration Examples
 
-### With SessionStart Hook
+### With Session Lifecycle Hook (Recommended)
+
+**Best approach:** Use the built-in session lifecycle hook for automatic management:
+
+```bash
+# Enable internal hooks in ~/.openclaw/openclaw.json
+{
+  "hooks": {
+    "internal": {
+      "enabled": true
+    }
+  }
+}
+
+# The session-lifecycle hook automatically:
+# - Starts daemon on session start
+# - Stops daemon on session end
+# - Shows session duration and message count
+```
+
+See [Session Lifecycle Hook](/docs/session-lifecycle-hook.md) for full documentation.
+
+**Benefits:**
+
+- ✅ Automatic start/stop based on session lifecycle
+- ✅ Session close notifications with duration/message count
+- ✅ Cleanup on gateway shutdown
+- ✅ No manual management needed
+
+### With SessionStart Hook (Manual)
 
 Create `~/.openclaw/hooks/SessionStart:resume`:
 
@@ -320,6 +349,8 @@ Create `~/.openclaw/hooks/SessionStart:resume`:
 nohup bash scripts/session-keep-alive-daemon.sh 60 > /tmp/session-keep-alive.log 2>&1 &
 echo "Session keep-alive daemon started"
 ```
+
+**Note:** This approach doesn't automatically stop the daemon on session end.
 
 ### With Build Process
 
