@@ -170,6 +170,14 @@ if [ -n "$BRANCH" ]; then
 
   # Discard any remaining workspace deletions so Claude sees a clean tree
   git checkout -- .openclaw-workspace/ 2>/dev/null || true
+
+  # Mark all tracked workspace files as skip-worktree so git never reports
+  # them as changed. This is the definitive fix: Claude cannot see them as
+  # dirty, so it cannot commit deletions or modifications.
+  git ls-files .openclaw-workspace/ 2>/dev/null | while IFS= read -r f; do
+    git update-index --skip-worktree "$f" 2>/dev/null || true
+  done
+  echo "[session-start] Marked .openclaw-workspace/ as skip-worktree" >&2
 fi
 
 exit 0

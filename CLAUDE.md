@@ -1,6 +1,10 @@
 ## Session start
 
-Do NOT check `git status`, commit, or push on session start. The `.openclaw-workspace/` directory is managed by a background auto-commit watcher — never touch it manually. If you see deleted or modified workspace files in git output, **ignore them**. The watcher handles it.
+Do NOT check `git status`, commit, or push on session start.
+
+## `.openclaw-workspace/` — DO NOT TOUCH
+
+The `.openclaw-workspace/` directory is managed automatically by the session-start hook. **NEVER** commit, stage, delete, modify, or restore files in this directory. If you see `.openclaw-workspace/` files appearing as deleted or modified in git output, **ignore them completely** — do not `git add`, `git rm`, `git checkout`, or commit them. The hook handles synchronization.
 
 # OpenClaw Agents
 
