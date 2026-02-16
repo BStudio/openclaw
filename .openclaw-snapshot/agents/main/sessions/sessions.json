@@ -10,7 +10,7 @@
       "accountId": "default"
     },
     "sessionId": "17f83975-39f1-4216-a296-a9ac6394a84e",
-    "updatedAt": 1771209324803,
+    "updatedAt": 1771209332486,
     "deliveryContext": {
       "channel": "telegram",
       "to": "telegram:455442541",
@@ -101,15 +101,15 @@
     "authProfileOverrideSource": "auto",
     "authProfileOverrideCompactionCount": 0,
     "inputTokens": 3,
-    "outputTokens": 230,
-    "totalTokens": 14224,
+    "outputTokens": 175,
+    "totalTokens": 14506,
     "totalTokensFresh": true,
     "modelProvider": "anthropic",
     "model": "claude-opus-4-6",
     "contextTokens": 200000,
     "systemPromptReport": {
       "source": "run",
-      "generatedAt": 1771209263875,
+      "generatedAt": 1771209325235,
       "sessionId": "17f83975-39f1-4216-a296-a9ac6394a84e",
       "sessionKey": "agent:main:main",
       "provider": "anthropic",
