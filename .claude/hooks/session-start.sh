@@ -32,11 +32,32 @@ if [ ! -f "$OPENCLAW_STATE/openclaw.json" ] && [ -f "$BOOTSTRAP_DIR/openclaw.jso
   echo "[session-start] Bootstrapped openclaw.json" >&2
 fi
 
-# Agent workspace
+# Agent workspace — bootstrap from template if brand new
 if [ ! -d "$OPENCLAW_STATE/workspace" ] && [ -d "$BOOTSTRAP_DIR/workspace" ]; then
   mkdir -p "$OPENCLAW_STATE/workspace/memory"
   cp "$BOOTSTRAP_DIR/workspace/"*.md "$OPENCLAW_STATE/workspace/" 2>/dev/null || true
   echo "[session-start] Bootstrapped agent workspace" >&2
+fi
+
+# Restore workspace files from git repo (survives container restarts).
+# The auto-commit-watcher syncs ~/.openclaw/workspace/ → .openclaw-workspace/.
+# On a fresh container those files are gone, so reverse-sync them back.
+REPO_WORKSPACE="$CLAUDE_PROJECT_DIR/.openclaw-workspace"
+if [ -d "$REPO_WORKSPACE" ]; then
+  mkdir -p "$OPENCLAW_STATE/workspace"
+  RESTORED=0
+  while IFS= read -r src_file; do
+    rel="${src_file#$REPO_WORKSPACE/}"
+    dest="$OPENCLAW_STATE/workspace/$rel"
+    if [ ! -f "$dest" ]; then
+      mkdir -p "$(dirname "$dest")"
+      cp -f "$src_file" "$dest"
+      RESTORED=$((RESTORED + 1))
+    fi
+  done < <(find "$REPO_WORKSPACE" -type f 2>/dev/null)
+  if [ "$RESTORED" -gt 0 ]; then
+    echo "[session-start] Restored $RESTORED workspace file(s) from repo" >&2
+  fi
 fi
 
 # --- Bootstrap Anthropic auth from session ingress token ---
