@@ -92,33 +92,49 @@ cleanup() {
 
 trap cleanup SIGINT SIGTERM
 
-# ── Sync workspace files into repo ──────────────────────
-sync_workspace() {
-  [ -d "$WORKSPACE_SRC" ] || return 0
-  mkdir -p "$WORKSPACE_DEST"
+# ── Sync /root/.openclaw/ into repo ─────────────────────
+# Excludes: auth/secrets, session transcripts, volatile files
+SYNC_EXCLUDE=(
+  "agents/*/agent/auth.json"
+  "agents/*/agent/auth-profiles.json"
+  "agents/*/sessions/"
+  "telegram/"
+  "workspace/conversations/"
+  "workspace/convo-watcher.sh"
+  "update-check.json"
+  "cron/jobs.json.bak"
+)
 
-  # Copy markdown files, skip conversations/logs/scripts
-  for f in "$WORKSPACE_SRC"/*.md; do
-    [ -f "$f" ] && cp -f "$f" "$WORKSPACE_DEST/"
+should_exclude() {
+  local rel="$1"
+  for pattern in "${SYNC_EXCLUDE[@]}"; do
+    # shellcheck disable=SC2254
+    case "$rel" in $pattern) return 0 ;; esac
   done
+  return 1
+}
 
-  # Copy memory dir
-  if [ -d "$WORKSPACE_SRC/memory" ]; then
-    mkdir -p "$WORKSPACE_DEST/memory"
-    for f in "$WORKSPACE_SRC/memory/"*; do
-      [ -f "$f" ] && cp -f "$f" "$WORKSPACE_DEST/memory/"
-    done
-  fi
+sync_openclaw() {
+  [ -d "$OPENCLAW_SRC" ] || return 0
+  mkdir -p "$OPENCLAW_DEST"
 
-  # Remove stale .md files from dest
-  for f in "$WORKSPACE_DEST"/*.md; do
-    [ -f "$f" ] || continue
-    local bname
-    bname="$(basename "$f")"
-    if [ ! -f "$WORKSPACE_SRC/$bname" ]; then
-      rm -f "$f"
-    fi
-  done
+  # Walk source and copy non-excluded files
+  while IFS= read -r src_file; do
+    local rel="${src_file#$OPENCLAW_SRC/}"
+    should_exclude "$rel" && continue
+    local dest="$OPENCLAW_DEST/$rel"
+    mkdir -p "$(dirname "$dest")"
+    cp -f "$src_file" "$dest"
+  done < <(find "$OPENCLAW_SRC" -type f 2>/dev/null)
+
+  # Clean up dest files that no longer exist in source
+  while IFS= read -r dest_file; do
+    local rel="${dest_file#$OPENCLAW_DEST/}"
+    [ ! -f "$OPENCLAW_SRC/$rel" ] && rm -f "$dest_file"
+  done < <(find "$OPENCLAW_DEST" -type f 2>/dev/null)
+
+  # Remove empty dirs in dest
+  find "$OPENCLAW_DEST" -type d -empty -delete 2>/dev/null || true
 }
 
 # ── Push with retry ───────────────────────────────────────
@@ -178,8 +194,8 @@ log "  Log:      $LOG_FILE"
 echo ""
 
 while true; do
-  # Sync external workspace files into the repo
-  sync_workspace
+  # Sync /root/.openclaw/ into the repo
+  sync_openclaw
 
   # Check for any changes (staged, unstaged, or untracked)
   has_staged=$(git diff --cached --quiet 2>/dev/null && echo no || echo yes)
