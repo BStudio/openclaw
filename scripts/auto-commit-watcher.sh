@@ -115,16 +115,9 @@ sync_openclaw() {
     cp -f "$src_file" "$dest"
   done < <(find "$OPENCLAW_SRC" -type f 2>/dev/null)
 
-  # Clean up dest files that no longer exist in source or now excluded
-  while IFS= read -r dest_file; do
-    local rel="${dest_file#$OPENCLAW_DEST/}"
-    if should_exclude "$rel" || [ ! -f "$OPENCLAW_SRC/$rel" ]; then
-      rm -f "$dest_file"
-    fi
-  done < <(find "$OPENCLAW_DEST" -type f 2>/dev/null)
-
-  # Remove empty dirs in dest
-  find "$OPENCLAW_DEST" -type d -empty -delete 2>/dev/null || true
+  # NOTE: Never delete dest files automatically.
+  # If source files are removed, they stay in the repo until manually cleaned up.
+  # This prevents accidental data loss from transient source unavailability.
 }
 
 # ── Push with retry ───────────────────────────────────────
@@ -210,8 +203,9 @@ while true; do
     if $DRY_RUN; then
       log "[DRY RUN] Would stage, commit, and push the above changes"
     else
-      # Stage only workspace changes
-      git add "$OPENCLAW_DEST"
+      # Stage only new/modified workspace files (never stage deletions)
+      git add --no-all "$OPENCLAW_DEST"
+      git diff --name-only --diff-filter=M -- "$OPENCLAW_DEST" | xargs -r git add
 
       # Check if there's actually anything to commit after staging
       if ! git diff --cached --quiet 2>/dev/null; then
