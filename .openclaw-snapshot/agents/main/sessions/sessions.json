@@ -10,7 +10,7 @@
       "accountId": "default"
     },
     "sessionId": "17f83975-39f1-4216-a296-a9ac6394a84e",
-    "updatedAt": 1771212484589,
+    "updatedAt": 1771212750603,
     "deliveryContext": {
       "channel": "telegram",
       "to": "telegram:455442541",
@@ -101,15 +101,15 @@
     "authProfileOverrideSource": "auto",
     "authProfileOverrideCompactionCount": 0,
     "inputTokens": 3,
-    "outputTokens": 244,
-    "totalTokens": 18269,
+    "outputTokens": 107,
+    "totalTokens": 18564,
     "totalTokensFresh": true,
     "modelProvider": "anthropic",
     "model": "claude-opus-4-6",
     "contextTokens": 200000,
     "systemPromptReport": {
       "source": "run",
-      "generatedAt": 1771212474065,
+      "generatedAt": 1771212744404,
       "sessionId": "17f83975-39f1-4216-a296-a9ac6394a84e",
       "sessionKey": "agent:main:main",
       "provider": "anthropic",
@@ -121,9 +121,9 @@
         "sandboxed": false
       },
       "systemPrompt": {
-        "chars": 23081,
+        "chars": 23082,
         "projectContextChars": 11706,
-        "nonProjectContextChars": 11375
+        "nonProjectContextChars": 11376
       },
       "injectedWorkspaceFiles": [
         {
