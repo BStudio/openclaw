@@ -125,4 +125,19 @@ sleep 3
 nohup node "$CLAUDE_PROJECT_DIR/dist/index.js" gateway > /tmp/openclaw-gateway.log 2>&1 &
 echo "[session-start] OpenClaw Gateway started (PID $!)" >&2
 
+# --- Start auto-commit watcher (background) ---
+AUTO_COMMIT_PID_FILE="/tmp/openclaw-auto-commit.pid"
+if [ -f "$AUTO_COMMIT_PID_FILE" ] && kill -0 "$(cat "$AUTO_COMMIT_PID_FILE")" 2>/dev/null; then
+  echo "[session-start] Auto-commit watcher already running (PID $(cat "$AUTO_COMMIT_PID_FILE"))" >&2
+else
+  BRANCH="$(git -C "$CLAUDE_PROJECT_DIR" branch --show-current 2>/dev/null || echo "")"
+  if [ -n "$BRANCH" ]; then
+    nohup bash "$CLAUDE_PROJECT_DIR/scripts/auto-commit-watcher.sh" -q -b "$BRANCH" > /tmp/openclaw-auto-commit.log 2>&1 &
+    echo "$!" > "$AUTO_COMMIT_PID_FILE"
+    echo "[session-start] Auto-commit watcher started (PID $!, branch: $BRANCH)" >&2
+  else
+    echo "[session-start] Skipping auto-commit watcher (no branch detected)" >&2
+  fi
+fi
+
 exit 0
