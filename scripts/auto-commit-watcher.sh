@@ -97,12 +97,6 @@ trap cleanup SIGINT SIGTERM
 should_exclude() {
   local rel="$1"
   case "$rel" in
-    */auth.json|*/auth-profiles.json) return 0 ;;
-    */sessions/*) return 0 ;;
-    telegram/*) return 0 ;;
-    workspace/conversations/*) return 0 ;;
-    workspace/convo-watcher.sh) return 0 ;;
-    update-check.json) return 0 ;;
     *.bak) return 0 ;;
   esac
   return 1

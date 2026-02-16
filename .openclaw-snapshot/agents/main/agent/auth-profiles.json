@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "profiles": {
+    "session-ingress": {
+      "type": "token",
+      "provider": "anthropic",
+      "token": "sk-ant-si-eyJ0eXAiOiAiSldUIiwgImFsZyI6ICJFUzI1NiIsICJraWQiOiAiTGt0eHNSLWgzSkNCbU51MEcyS1ZoZVRXUS14SDZfcU82TEtvejltQjQwSSJ9.eyJpc3MiOiAic2Vzc2lvbi1pbmdyZXNzIiwgImF1ZCI6IFsiYW50aHJvcGljLWFwaSJdLCAic2Vzc2lvbl9pZCI6ICJzZXNzaW9uXzAxRUV4SHBpNFYzWWpLajFyR2ZRMXk3SyIsICJvcmdhbml6YXRpb25fdXVpZCI6ICJmNGUxNjQ0Ni05MmRlLTQ3Y2EtYWY4OS02NTFiOWViNTkyNWEiLCAiaWF0IjogMTc3MTIwNjk0OSwgImV4cCI6IDE3NzEyMjEzNDksICJhY2NvdW50X3V1aWQiOiAiNGE4MmZkZTYtZTE5Yy00MWViLWEzNmQtZjQ3YTNmODhjNmYyIiwgImFjY291bnRfZW1haWwiOiAia2FtaWxAYmFnaXJvdi5jYSIsICJhcHBsaWNhdGlvbiI6ICJjY3IifQ.wU6o2mX9yIjwcDDw2wK_Ibrp1GM04tLiSd96sbrKk7y2BLji8YIjGZ_FIA94WgodOkcWsPs9t617Fb9tu7-r9A"
+    }
+  },
+  "lastGood": {
+    "anthropic": "session-ingress"
+  },
+  "usageStats": {
+    "session-ingress": {
+      "lastUsed": 1771207986135,
+      "errorCount": 0
+    }
+  }
+}
