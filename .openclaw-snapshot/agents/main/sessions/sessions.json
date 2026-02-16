@@ -10,7 +10,7 @@
       "accountId": "default"
     },
     "sessionId": "17f83975-39f1-4216-a296-a9ac6394a84e",
-    "updatedAt": 1771211048852,
+    "updatedAt": 1771212484589,
     "deliveryContext": {
       "channel": "telegram",
       "to": "telegram:455442541",
@@ -100,16 +100,16 @@
     "authProfileOverride": "session-ingress",
     "authProfileOverrideSource": "auto",
     "authProfileOverrideCompactionCount": 0,
-    "inputTokens": 6,
-    "outputTokens": 658,
-    "totalTokens": 17603,
+    "inputTokens": 3,
+    "outputTokens": 244,
+    "totalTokens": 18269,
     "totalTokensFresh": true,
     "modelProvider": "anthropic",
     "model": "claude-opus-4-6",
     "contextTokens": 200000,
     "systemPromptReport": {
       "source": "run",
-      "generatedAt": 1771211025316,
+      "generatedAt": 1771212474065,
       "sessionId": "17f83975-39f1-4216-a296-a9ac6394a84e",
       "sessionKey": "agent:main:main",
       "provider": "anthropic",
@@ -121,9 +121,9 @@
         "sandboxed": false
       },
       "systemPrompt": {
-        "chars": 22388,
-        "projectContextChars": 11012,
-        "nonProjectContextChars": 11376
+        "chars": 23081,
+        "projectContextChars": 11706,
+        "nonProjectContextChars": 11375
       },
       "injectedWorkspaceFiles": [
         {
@@ -180,6 +180,14 @@
           "missing": true,
           "rawChars": 0,
           "injectedChars": 61,
+          "truncated": false
+        },
+        {
+          "name": "MEMORY.md",
+          "path": "/root/.openclaw/workspace/MEMORY.md",
+          "missing": false,
+          "rawChars": 680,
+          "injectedChars": 680,
           "truncated": false
         }
       ],
