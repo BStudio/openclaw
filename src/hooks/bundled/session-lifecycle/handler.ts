@@ -140,7 +140,7 @@ function checkAndPing(cfg: OpenClawConfig, sessionId: string): void {
       // Post to session ingress API — this is what actually prevents timeout
       const token = readIngressToken();
       if (token) {
-        postKeepaliveEvent(sessionId, token, detail).then((ok) => {
+        void postKeepaliveEvent(sessionId, token, detail).then((ok) => {
           logToFile(ok ? `ping OK (API): ${detail}` : `ping FAILED (API): ${detail}`);
         });
       } else {
