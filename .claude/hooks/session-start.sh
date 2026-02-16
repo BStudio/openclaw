@@ -40,22 +40,21 @@ if [ ! -d "$OPENCLAW_STATE/workspace" ] && [ -d "$BOOTSTRAP_DIR/workspace" ]; th
 fi
 
 # --- Reverse-sync: restore workspace files from git repo ---
-# On a fresh container, ensureAgentWorkspace only creates template files.
-# Files like MEMORY.md exist in the repo (.openclaw-workspace/) but not in
-# ~/.openclaw/workspace/, so the auto-commit watcher deletes them.
-# This copies repo files back to the live workspace if they don't already exist.
+# The repo (.openclaw-workspace/) is the persistent store across sessions.
+# On a fresh container the bootstrap step above only creates template files,
+# which may be older/incomplete compared to the repo. Overwrite the live
+# workspace with ALL repo files so the persisted state always wins.
 REPO_WORKSPACE="$CLAUDE_PROJECT_DIR/.openclaw-workspace"
 LIVE_WORKSPACE="$OPENCLAW_STATE/workspace"
-if [ -d "$REPO_WORKSPACE" ] && [ -d "$LIVE_WORKSPACE" ]; then
+if [ -d "$REPO_WORKSPACE" ]; then
+  mkdir -p "$LIVE_WORKSPACE"
   while IFS= read -r src_file; do
     rel="${src_file#$REPO_WORKSPACE/}"
     dest="$LIVE_WORKSPACE/$rel"
-    if [ ! -f "$dest" ]; then
-      mkdir -p "$(dirname "$dest")"
-      cp "$src_file" "$dest"
-      echo "[session-start] Restored workspace file: $rel" >&2
-    fi
+    mkdir -p "$(dirname "$dest")"
+    cp -f "$src_file" "$dest"
   done < <(find "$REPO_WORKSPACE" -type f 2>/dev/null)
+  echo "[session-start] Reverse-synced repo → live workspace" >&2
 fi
 
 # --- Bootstrap Anthropic auth from session ingress token ---
