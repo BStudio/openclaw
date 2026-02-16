@@ -4,16 +4,7 @@
     "session-ingress": {
       "type": "token",
       "provider": "anthropic",
-      "token": "sk-ant-si-eyJ0eXAiOiAiSldUIiwgImFsZyI6ICJFUzI1NiIsICJraWQiOiAiTGt0eHNSLWgzSkNCbU51MEcyS1ZoZVRXUS14SDZfcU82TEtvejltQjQwSSJ9.eyJpc3MiOiAic2Vzc2lvbi1pbmdyZXNzIiwgImF1ZCI6IFsiYW50aHJvcGljLWFwaSJdLCAic2Vzc2lvbl9pZCI6ICJzZXNzaW9uXzAxN2VEYlFhN3hUbTlhNFBkbkNhM3NKTCIsICJvcmdhbml6YXRpb25fdXVpZCI6ICJmNGUxNjQ0Ni05MmRlLTQ3Y2EtYWY4OS02NTFiOWViNTkyNWEiLCAiaWF0IjogMTc3MTIxMjY1NywgImV4cCI6IDE3NzEyMjcwNTcsICJhY2NvdW50X3V1aWQiOiAiNGE4MmZkZTYtZTE5Yy00MWViLWEzNmQtZjQ3YTNmODhjNmYyIiwgImFjY291bnRfZW1haWwiOiAia2FtaWxAYmFnaXJvdi5jYSIsICJhcHBsaWNhdGlvbiI6ICJjY3IifQ.BY6Om0t8x6Z_sdCr2btrBWbT3ud6pT6tCEWeonHQwAuZ1SJm8pk_3GZ0p1J7cVMsc9KRQS-RwHZLZtSUTIXZ_Q"
-    }
-  },
-  "lastGood": {
-    "anthropic": "session-ingress"
-  },
-  "usageStats": {
-    "session-ingress": {
-      "lastUsed": 1771212750595,
-      "errorCount": 0
+      "token": "sk-ant-si-eyJ0eXAiOiAiSldUIiwgImFsZyI6ICJFUzI1NiIsICJraWQiOiAiTGt0eHNSLWgzSkNCbU51MEcyS1ZoZVRXUS14SDZfcU82TEtvejltQjQwSSJ9.eyJpc3MiOiAic2Vzc2lvbi1pbmdyZXNzIiwgImF1ZCI6IFsiYW50aHJvcGljLWFwaSJdLCAic2Vzc2lvbl9pZCI6ICJzZXNzaW9uXzAxN2VEYlFhN3hUbTlhNFBkbkNhM3NKTCIsICJvcmdhbml6YXRpb25fdXVpZCI6ICJmNGUxNjQ0Ni05MmRlLTQ3Y2EtYWY4OS02NTFiOWViNTkyNWEiLCAiaWF0IjogMTc3MTIxMzM3MCwgImV4cCI6IDE3NzEyMjc3NzAsICJhY2NvdW50X3V1aWQiOiAiNGE4MmZkZTYtZTE5Yy00MWViLWEzNmQtZjQ3YTNmODhjNmYyIiwgImFjY291bnRfZW1haWwiOiAia2FtaWxAYmFnaXJvdi5jYSIsICJhcHBsaWNhdGlvbiI6ICJjY3IifQ._RhjRrDwk8K0Nj1Aijx9Fph6x3zjwdB8RZ9A-Xa8VRZ4iif62mYGzx1o432PomuTzlgaZSZ48FOkMoDSbKvSPw"
     }
   }
 }
