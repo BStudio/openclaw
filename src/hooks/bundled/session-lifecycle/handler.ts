@@ -11,11 +11,12 @@ import type { OpenClawConfig } from "../../../config/config.js";
 import type { HookHandler } from "../../hooks.js";
 import { resolveStorePath } from "../../../config/sessions/paths.js";
 import { loadSessionStore } from "../../../config/sessions/store.js";
+import { getActiveTaskCount, getTotalQueueSize } from "../../../process/command-queue.js";
 
 const LOG_FILE = "/tmp/claude-code-activity-monitor.log";
 const CHECK_INTERVAL_MS = 30_000; // 30 seconds
 const PING_INTERVAL_MS = 60_000; // 60 seconds
-const IDLE_THRESHOLD_MS = 3 * 60_000; // 3 minutes
+const IDLE_THRESHOLD_MS = 10 * 60_000; // 10 minutes
 
 let activityTimer: ReturnType<typeof setInterval> | null = null;
 let lastPingTime = 0;
@@ -31,31 +32,45 @@ function logToFile(message: string): void {
 
 function checkAndPing(cfg: OpenClawConfig): void {
   try {
-    const storePath = resolveStorePath(cfg.session?.store);
-    const store = loadSessionStore(storePath, { skipCache: true });
-    const sessionKeys = Object.keys(store);
-
-    if (sessionKeys.length === 0) {
-      return;
-    }
-
     const now = Date.now();
-    const cutoff = now - IDLE_THRESHOLD_MS;
-    let activeCount = 0;
 
-    for (const key of sessionKeys) {
-      const entry = store[key];
-      if (entry?.updatedAt && entry.updatedAt >= cutoff) {
-        activeCount++;
+    // Signal 1: command queue — catches in-flight LLM calls & tool execution
+    // that don't update the session store until completion.
+    const activeTasks = getActiveTaskCount();
+    const totalQueued = getTotalQueueSize();
+    const queueBusy = activeTasks > 0 || totalQueued > 0;
+
+    // Signal 2: session store — catches recently-active sessions.
+    let activeSessionCount = 0;
+    try {
+      const storePath = resolveStorePath(cfg.session?.store);
+      const store = loadSessionStore(storePath, { skipCache: true });
+      const cutoff = now - IDLE_THRESHOLD_MS;
+
+      for (const key of Object.keys(store)) {
+        const entry = store[key];
+        if (entry?.updatedAt && entry.updatedAt >= cutoff) {
+          activeSessionCount++;
+        }
       }
+    } catch {
+      // Session store may be unavailable; rely on queue signal alone.
     }
 
-    if (activeCount > 0 && now - lastPingTime >= PING_INTERVAL_MS) {
-      // Write keepalive ping to stdout — this signals activity to Claude Code
+    const isActive = queueBusy || activeSessionCount > 0;
+
+    if (isActive && now - lastPingTime >= PING_INTERVAL_MS) {
       const ts = new Date().toISOString();
-      process.stdout.write(`[openclaw-keepalive] ${ts} (${activeCount} active)\n`);
+      const parts: string[] = [];
+      if (activeSessionCount > 0) {
+        parts.push(`${activeSessionCount} session${activeSessionCount !== 1 ? "s" : ""}`);
+      }
+      if (queueBusy) {
+        parts.push(`${activeTasks} running, ${totalQueued} queued`);
+      }
+      process.stdout.write(`[openclaw-keepalive] ${ts} (${parts.join(", ")})\n`);
       lastPingTime = now;
-      logToFile(`ping: ${activeCount} active sessions`);
+      logToFile(`ping: ${parts.join(", ")}`);
     }
   } catch (err) {
     logToFile(`check error: ${String(err)}`);

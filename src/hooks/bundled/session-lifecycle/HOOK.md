@@ -25,9 +25,12 @@ Claude Code containers auto-close after ~5 minutes of inactivity. When OpenClaw 
 
 On gateway startup (in Claude Code sessions only):
 
-1. Starts an in-process timer that polls the session store every 30 seconds
-2. When any session has been updated within the last 3 minutes, writes a keepalive ping to stdout
-3. Claude Code sees the stdout activity and keeps the container alive
+1. Starts an in-process timer that checks for activity every 30 seconds
+2. Uses two activity signals:
+   - **Command queue**: detects in-flight LLM calls, tool execution, and queued tasks
+   - **Session store**: detects sessions updated within the last 10 minutes
+3. When either signal indicates activity, writes a keepalive ping to stdout (at most once per 60 seconds)
+4. Claude Code sees the stdout activity and keeps the container alive
 
 Only activates when the `CLAUDECODE` or `CLAUDE_CODE_SESSION_ID` environment variable is set.
 
