@@ -94,14 +94,31 @@ trap cleanup SIGINT SIGTERM
 
 # ── Sync workspace files into repo ──────────────────────
 sync_workspace() {
-  if [ -d "$WORKSPACE_SRC" ]; then
-    mkdir -p "$WORKSPACE_DEST"
-    rsync -a --delete \
-      --exclude='conversations/' \
-      --exclude='watcher.log' \
-      --exclude='convo-watcher.sh' \
-      "$WORKSPACE_SRC/" "$WORKSPACE_DEST/"
+  [ -d "$WORKSPACE_SRC" ] || return 0
+  mkdir -p "$WORKSPACE_DEST"
+
+  # Copy markdown files, skip conversations/logs/scripts
+  for f in "$WORKSPACE_SRC"/*.md; do
+    [ -f "$f" ] && cp -f "$f" "$WORKSPACE_DEST/"
+  done
+
+  # Copy memory dir
+  if [ -d "$WORKSPACE_SRC/memory" ]; then
+    mkdir -p "$WORKSPACE_DEST/memory"
+    for f in "$WORKSPACE_SRC/memory/"*; do
+      [ -f "$f" ] && cp -f "$f" "$WORKSPACE_DEST/memory/"
+    done
   fi
+
+  # Remove stale .md files from dest
+  for f in "$WORKSPACE_DEST"/*.md; do
+    [ -f "$f" ] || continue
+    local bname
+    bname="$(basename "$f")"
+    if [ ! -f "$WORKSPACE_SRC/$bname" ]; then
+      rm -f "$f"
+    fi
+  done
 }
 
 # ── Push with retry ───────────────────────────────────────
