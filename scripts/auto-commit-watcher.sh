@@ -33,8 +33,8 @@ QUIET=false
 LOG_FILE="/tmp/openclaw-auto-commit.log"
 MAX_RETRIES=4
 PUSH_RETRY_DELAYS=(2 4 8 16)
-OPENCLAW_SRC="/root/.openclaw"
-OPENCLAW_DEST="$REPO_DIR/.openclaw-snapshot"
+OPENCLAW_SRC="$HOME/.openclaw/workspace"
+OPENCLAW_DEST="$REPO_DIR/.openclaw-workspace"
 
 # ── Parse args ────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
@@ -92,8 +92,8 @@ cleanup() {
 
 trap cleanup SIGINT SIGTERM
 
-# ── Sync /root/.openclaw/ into repo ─────────────────────
-# Excludes: auth/secrets, session transcripts, volatile files
+# ── Sync ~/.openclaw/workspace/ into repo ────────────────
+# Only watches workspace files (SOUL.md, AGENTS.md, MEMORY.md, etc.)
 should_exclude() {
   local rel="$1"
   case "$rel" in
@@ -184,13 +184,13 @@ log "  Log:      $LOG_FILE"
 echo ""
 
 while true; do
-  # Sync /root/.openclaw/ into the repo
+  # Sync ~/.openclaw/workspace/ into the repo
   sync_openclaw
 
-  # Check for any changes (staged, unstaged, or untracked)
-  has_staged=$(git diff --cached --quiet 2>/dev/null && echo no || echo yes)
-  has_unstaged=$(git diff --quiet 2>/dev/null && echo no || echo yes)
-  has_untracked=$(git ls-files --others --exclude-standard | head -1)
+  # Check for workspace changes only (staged, unstaged, or untracked)
+  has_staged=$(git diff --cached --quiet -- "$OPENCLAW_DEST" 2>/dev/null && echo no || echo yes)
+  has_unstaged=$(git diff --quiet -- "$OPENCLAW_DEST" 2>/dev/null && echo no || echo yes)
+  has_untracked=$(git ls-files --others --exclude-standard -- "$OPENCLAW_DEST" | head -1)
 
   if [ "$has_staged" = "yes" ] || [ "$has_unstaged" = "yes" ] || [ -n "$has_untracked" ]; then
     log "Changes detected!"
@@ -210,8 +210,8 @@ while true; do
     if $DRY_RUN; then
       log "[DRY RUN] Would stage, commit, and push the above changes"
     else
-      # Stage all changes (respects .gitignore)
-      git add -A
+      # Stage only workspace changes
+      git add "$OPENCLAW_DEST"
 
       # Check if there's actually anything to commit after staging
       if ! git diff --cached --quiet 2>/dev/null; then
