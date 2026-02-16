@@ -32,5 +32,16 @@
         "enabled": false
       }
     }
+  },
+  "agents": {
+    "list": [
+      {
+        "id": "dev",
+        "default": true,
+        "name": "C-3PO",
+        "workspace": "~/.openclaw/workspace-dev",
+        "model": "haiku"
+      }
+    ]
   }
 }
