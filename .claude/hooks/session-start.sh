@@ -39,6 +39,25 @@ if [ ! -d "$OPENCLAW_STATE/workspace" ] && [ -d "$BOOTSTRAP_DIR/workspace" ]; th
   echo "[session-start] Bootstrapped agent workspace" >&2
 fi
 
+# --- Reverse-sync: restore workspace files from git repo ---
+# On a fresh container, ensureAgentWorkspace only creates template files.
+# Files like MEMORY.md exist in the repo (.openclaw-workspace/) but not in
+# ~/.openclaw/workspace/, so the auto-commit watcher deletes them.
+# This copies repo files back to the live workspace if they don't already exist.
+REPO_WORKSPACE="$CLAUDE_PROJECT_DIR/.openclaw-workspace"
+LIVE_WORKSPACE="$OPENCLAW_STATE/workspace"
+if [ -d "$REPO_WORKSPACE" ] && [ -d "$LIVE_WORKSPACE" ]; then
+  while IFS= read -r src_file; do
+    rel="${src_file#$REPO_WORKSPACE/}"
+    dest="$LIVE_WORKSPACE/$rel"
+    if [ ! -f "$dest" ]; then
+      mkdir -p "$(dirname "$dest")"
+      cp "$src_file" "$dest"
+      echo "[session-start] Restored workspace file: $rel" >&2
+    fi
+  done < <(find "$REPO_WORKSPACE" -type f 2>/dev/null)
+fi
+
 # --- Bootstrap Anthropic auth from session ingress token ---
 TOKEN_FILE="/home/claude/.claude/remote/.session_ingress_token"
 SESSION_TOKEN=""
