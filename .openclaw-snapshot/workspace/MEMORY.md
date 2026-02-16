@@ -1,6 +1,7 @@
 # MEMORY.md — Kai's Long-Term Memory
 
 ## 2026-02-16
+
 - First session with Kamil on Telegram
 - Built a convo-watcher script that monitors our Telegram session JSONL and exports messages to dated JSON files (`/root/.openclaw/workspace/conversations/`)
 - Workspace is at `/root/.openclaw/workspace/`, separate from the openclaw repo at `/home/user/openclaw/`
