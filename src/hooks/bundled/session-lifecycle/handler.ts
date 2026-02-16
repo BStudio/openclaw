@@ -5,6 +5,9 @@
  * Runs as an in-process timer on gateway:startup (no separate process needed).
  *
  * Only activates in Claude Code sessions (detected via CLAUDECODE env var).
+ *
+ * Uses the session ingress API to signal activity, since OpenClaw runs as a
+ * sibling process to Claude Code and stdout writes don't reach it.
  */
 
 import type { OpenClawConfig } from "../../../config/config.js";
@@ -15,7 +18,7 @@ import { getActiveTaskCount, getTotalQueueSize } from "../../../process/command-
 
 const LOG_FILE = "/tmp/claude-code-activity-monitor.log";
 const CHECK_INTERVAL_MS = 30_000; // 30 seconds
-const PING_INTERVAL_MS = 60_000; // 60 seconds
+const PING_INTERVAL_MS = 60_000; // 60 seconds (min time between pings)
 const IDLE_THRESHOLD_MS = 10 * 60_000; // 10 minutes
 
 let activityTimer: ReturnType<typeof setInterval> | null = null;
@@ -30,12 +33,73 @@ function logToFile(message: string): void {
   }
 }
 
-function checkAndPing(cfg: OpenClawConfig): void {
+/**
+ * Read the session ingress token from the well-known path.
+ */
+function readIngressToken(): string | null {
+  try {
+    const fs = require("node:fs");
+    const tokenPath =
+      process.env.CLAUDE_SESSION_INGRESS_TOKEN_FILE ||
+      "/home/claude/.claude/remote/.session_ingress_token";
+    return fs.readFileSync(tokenPath, "utf-8").trim();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Post a keepalive event to the session ingress API.
+ * This is what environment-manager / the CCR backend watches for activity.
+ */
+async function postKeepaliveEvent(
+  sessionId: string,
+  token: string,
+  detail: string,
+): Promise<boolean> {
+  try {
+    const crypto = require("node:crypto");
+    const uuid = crypto.randomUUID();
+    const ts = new Date().toISOString();
+
+    const body = JSON.stringify({
+      events: [
+        {
+          type: "env_manager_log",
+          uuid,
+          data: {
+            level: "info",
+            category: "keepalive",
+            content: `openclaw-keepalive: ${detail}`,
+            timestamp: ts,
+          },
+        },
+      ],
+    });
+
+    const resp = await fetch(
+      `https://api.anthropic.com/v2/session_ingress/session/${sessionId}/events`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body,
+      },
+    );
+
+    return resp.ok;
+  } catch {
+    return false;
+  }
+}
+
+function checkAndPing(cfg: OpenClawConfig, sessionId: string): void {
   try {
     const now = Date.now();
 
     // Signal 1: command queue — catches in-flight LLM calls & tool execution
-    // that don't update the session store until completion.
     const activeTasks = getActiveTaskCount();
     const totalQueued = getTotalQueueSize();
     const queueBusy = activeTasks > 0 || totalQueued > 0;
@@ -60,7 +124,6 @@ function checkAndPing(cfg: OpenClawConfig): void {
     const isActive = queueBusy || activeSessionCount > 0;
 
     if (isActive && now - lastPingTime >= PING_INTERVAL_MS) {
-      const ts = new Date().toISOString();
       const parts: string[] = [];
       if (activeSessionCount > 0) {
         parts.push(`${activeSessionCount} session${activeSessionCount !== 1 ? "s" : ""}`);
@@ -68,9 +131,23 @@ function checkAndPing(cfg: OpenClawConfig): void {
       if (queueBusy) {
         parts.push(`${activeTasks} running, ${totalQueued} queued`);
       }
-      process.stdout.write(`[openclaw-keepalive] ${ts} (${parts.join(", ")})\n`);
+      const detail = parts.join(", ");
+
+      // Also write to stdout as a fallback (original behavior)
+      const ts = new Date().toISOString();
+      process.stdout.write(`[openclaw-keepalive] ${ts} (${detail})\n`);
+
+      // Post to session ingress API — this is what actually prevents timeout
+      const token = readIngressToken();
+      if (token) {
+        postKeepaliveEvent(sessionId, token, detail).then((ok) => {
+          logToFile(ok ? `ping OK (API): ${detail}` : `ping FAILED (API): ${detail}`);
+        });
+      } else {
+        logToFile(`ping (stdout only, no token): ${detail}`);
+      }
+
       lastPingTime = now;
-      logToFile(`ping: ${parts.join(", ")}`);
     }
   } catch (err) {
     logToFile(`check error: ${String(err)}`);
@@ -83,10 +160,20 @@ const handler: HookHandler = async (event) => {
   }
 
   // Only activate in Claude Code sessions
-  const isClaudeCode = process.env.CLAUDECODE || process.env.CLAUDE_CODE_SESSION_ID || false;
+  const sessionId = process.env.CLAUDE_CODE_REMOTE_SESSION_ID;
+  const isClaudeCode = !!(
+    process.env.CLAUDECODE ||
+    process.env.CLAUDE_CODE_SESSION_ID ||
+    sessionId
+  );
 
   if (!isClaudeCode) {
     logToFile("skipped: not a Claude Code session");
+    return;
+  }
+
+  if (!sessionId) {
+    logToFile("skipped: CLAUDE_CODE_REMOTE_SESSION_ID not set (cannot post to ingress API)");
     return;
   }
 
@@ -103,13 +190,13 @@ const handler: HookHandler = async (event) => {
     return;
   }
 
-  logToFile("starting activity monitor");
+  logToFile(`starting activity monitor (session: ${sessionId})`);
 
-  activityTimer = setInterval(() => checkAndPing(cfg), CHECK_INTERVAL_MS);
+  activityTimer = setInterval(() => checkAndPing(cfg, sessionId), CHECK_INTERVAL_MS);
   activityTimer.unref(); // don't block gateway shutdown
 
   // Do an initial check immediately
-  checkAndPing(cfg);
+  checkAndPing(cfg, sessionId);
 };
 
 export default handler;
