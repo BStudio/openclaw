@@ -94,23 +94,17 @@ trap cleanup SIGINT SIGTERM
 
 # ── Sync /root/.openclaw/ into repo ─────────────────────
 # Excludes: auth/secrets, session transcripts, volatile files
-SYNC_EXCLUDE=(
-  "agents/*/agent/auth.json"
-  "agents/*/agent/auth-profiles.json"
-  "agents/*/sessions/"
-  "telegram/"
-  "workspace/conversations/"
-  "workspace/convo-watcher.sh"
-  "update-check.json"
-  "cron/jobs.json.bak"
-)
-
 should_exclude() {
   local rel="$1"
-  for pattern in "${SYNC_EXCLUDE[@]}"; do
-    # shellcheck disable=SC2254
-    case "$rel" in $pattern) return 0 ;; esac
-  done
+  case "$rel" in
+    */auth.json|*/auth-profiles.json) return 0 ;;
+    */sessions/*) return 0 ;;
+    telegram/*) return 0 ;;
+    workspace/conversations/*) return 0 ;;
+    workspace/convo-watcher.sh) return 0 ;;
+    update-check.json) return 0 ;;
+    *.bak) return 0 ;;
+  esac
   return 1
 }
 
@@ -127,10 +121,12 @@ sync_openclaw() {
     cp -f "$src_file" "$dest"
   done < <(find "$OPENCLAW_SRC" -type f 2>/dev/null)
 
-  # Clean up dest files that no longer exist in source
+  # Clean up dest files that no longer exist in source or now excluded
   while IFS= read -r dest_file; do
     local rel="${dest_file#$OPENCLAW_DEST/}"
-    [ ! -f "$OPENCLAW_SRC/$rel" ] && rm -f "$dest_file"
+    if should_exclude "$rel" || [ ! -f "$OPENCLAW_SRC/$rel" ]; then
+      rm -f "$dest_file"
+    fi
   done < <(find "$OPENCLAW_DEST" -type f 2>/dev/null)
 
   # Remove empty dirs in dest
