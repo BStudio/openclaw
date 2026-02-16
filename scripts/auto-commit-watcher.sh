@@ -33,8 +33,8 @@ QUIET=false
 LOG_FILE="/tmp/openclaw-auto-commit.log"
 MAX_RETRIES=4
 PUSH_RETRY_DELAYS=(2 4 8 16)
-WORKSPACE_SRC="/root/.openclaw/workspace"
-WORKSPACE_DEST="$REPO_DIR/.openclaw-workspace"
+OPENCLAW_SRC="/root/.openclaw"
+OPENCLAW_DEST="$REPO_DIR/.openclaw-snapshot"
 
 # ── Parse args ────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
