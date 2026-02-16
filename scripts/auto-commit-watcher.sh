@@ -115,16 +115,10 @@ sync_openclaw() {
     cp -f "$src_file" "$dest"
   done < <(find "$OPENCLAW_SRC" -type f 2>/dev/null)
 
-  # Clean up dest files that no longer exist in source or now excluded
-  while IFS= read -r dest_file; do
-    local rel="${dest_file#$OPENCLAW_DEST/}"
-    if should_exclude "$rel" || [ ! -f "$OPENCLAW_SRC/$rel" ]; then
-      rm -f "$dest_file"
-    fi
-  done < <(find "$OPENCLAW_DEST" -type f 2>/dev/null)
-
-  # Remove empty dirs in dest
-  find "$OPENCLAW_DEST" -type d -empty -delete 2>/dev/null || true
+  # NOTE: We intentionally do NOT delete dest files that are missing from
+  # source. On a fresh container the live workspace starts with only template
+  # files, so files like MEMORY.md would be incorrectly removed from the repo.
+  # The repo acts as the persistent store — only additive syncs are safe.
 }
 
 # ── Push with retry ───────────────────────────────────────
