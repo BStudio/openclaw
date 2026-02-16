@@ -33,6 +33,8 @@ QUIET=false
 LOG_FILE="/tmp/openclaw-auto-commit.log"
 MAX_RETRIES=4
 PUSH_RETRY_DELAYS=(2 4 8 16)
+WORKSPACE_SRC="/root/.openclaw/workspace"
+WORKSPACE_DEST="$REPO_DIR/.openclaw-workspace"
 
 # ── Parse args ────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
@@ -89,6 +91,18 @@ cleanup() {
 }
 
 trap cleanup SIGINT SIGTERM
+
+# ── Sync workspace files into repo ──────────────────────
+sync_workspace() {
+  if [ -d "$WORKSPACE_SRC" ]; then
+    mkdir -p "$WORKSPACE_DEST"
+    rsync -a --delete \
+      --exclude='conversations/' \
+      --exclude='watcher.log' \
+      --exclude='convo-watcher.sh' \
+      "$WORKSPACE_SRC/" "$WORKSPACE_DEST/"
+  fi
+}
 
 # ── Push with retry ───────────────────────────────────────
 push_with_retry() {
@@ -147,6 +161,9 @@ log "  Log:      $LOG_FILE"
 echo ""
 
 while true; do
+  # Sync external workspace files into the repo
+  sync_workspace
+
   # Check for any changes (staged, unstaged, or untracked)
   has_staged=$(git diff --cached --quiet 2>/dev/null && echo no || echo yes)
   has_unstaged=$(git diff --quiet 2>/dev/null && echo no || echo yes)
