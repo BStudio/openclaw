@@ -189,10 +189,16 @@ You are free to edit `HEARTBEAT.md` with a short checklist or reminders. Keep it
 **Proactive work you can do without asking:**
 
 - Read and organize memory files
-- Check on projects (git status, etc.)
 - Update documentation
-- Commit and push your own changes
+- Commit and push your own workspace file changes (additions/modifications only)
 - **Review and update MEMORY.md** (see below)
+
+**NEVER do these automatically:**
+
+- Never commit deletions of `.openclaw-workspace/` files — the repo is the persistent store
+- Never run `git add .` or `git add -A` — only stage specific files you changed
+- If `git status` shows deleted workspace files, **restore** them (`git checkout -- .openclaw-workspace/`) instead of committing the deletions
+- Don't run `git status` on session start just to look for things to commit
 
 ### 🔄 Memory Maintenance (During Heartbeats)
 
