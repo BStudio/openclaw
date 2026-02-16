@@ -92,8 +92,16 @@ cleanup() {
 
 trap cleanup SIGINT SIGTERM
 
-# ── Sync ~/.openclaw/workspace/ into repo ────────────────
-# Only watches workspace files (SOUL.md, AGENTS.md, MEMORY.md, etc.)
+# ── Sync workspace ↔ repo (bidirectional, additive-only) ─
+# On a fresh container ~/.openclaw/workspace/ only has template files.
+# The repo (.openclaw-workspace/) is the persistent store and may have
+# files like MEMORY.md that the templates don't include.
+#
+# Strategy:
+#   1. Reverse-sync: repo → live workspace (restore missing files)
+#   2. Forward-sync: live workspace → repo  (persist changes)
+#   Never delete in either direction.
+
 should_exclude() {
   local rel="$1"
   case "$rel" in
@@ -103,10 +111,21 @@ should_exclude() {
 }
 
 sync_openclaw() {
-  [ -d "$OPENCLAW_SRC" ] || return 0
-  mkdir -p "$OPENCLAW_DEST"
+  mkdir -p "$OPENCLAW_SRC" "$OPENCLAW_DEST"
 
-  # Walk source and copy non-excluded files
+  # 1. Reverse: restore repo files missing from live workspace
+  while IFS= read -r dest_file; do
+    local rel="${dest_file#$OPENCLAW_DEST/}"
+    should_exclude "$rel" && continue
+    local src="$OPENCLAW_SRC/$rel"
+    if [ ! -f "$src" ]; then
+      mkdir -p "$(dirname "$src")"
+      cp "$dest_file" "$src"
+      log_quiet "Restored to live workspace: $rel"
+    fi
+  done < <(find "$OPENCLAW_DEST" -type f 2>/dev/null)
+
+  # 2. Forward: copy live workspace files into repo
   while IFS= read -r src_file; do
     local rel="${src_file#$OPENCLAW_SRC/}"
     should_exclude "$rel" && continue
@@ -114,11 +133,6 @@ sync_openclaw() {
     mkdir -p "$(dirname "$dest")"
     cp -f "$src_file" "$dest"
   done < <(find "$OPENCLAW_SRC" -type f 2>/dev/null)
-
-  # NOTE: We intentionally do NOT delete dest files that are missing from
-  # source. On a fresh container the live workspace starts with only template
-  # files, so files like MEMORY.md would be incorrectly removed from the repo.
-  # The repo acts as the persistent store — only additive syncs are safe.
 }
 
 # ── Push with retry ───────────────────────────────────────
@@ -181,9 +195,9 @@ while true; do
   # Sync ~/.openclaw/workspace/ into the repo
   sync_openclaw
 
-  # Check for workspace changes only (staged, unstaged, or untracked)
-  has_staged=$(git diff --cached --quiet -- "$OPENCLAW_DEST" 2>/dev/null && echo no || echo yes)
-  has_unstaged=$(git diff --quiet -- "$OPENCLAW_DEST" 2>/dev/null && echo no || echo yes)
+  # Check for workspace additions/modifications only (ignore deletions)
+  has_staged=$(git diff --cached --diff-filter=d --quiet -- "$OPENCLAW_DEST" 2>/dev/null && echo no || echo yes)
+  has_unstaged=$(git diff --diff-filter=d --quiet -- "$OPENCLAW_DEST" 2>/dev/null && echo no || echo yes)
   has_untracked=$(git ls-files --others --exclude-standard -- "$OPENCLAW_DEST" | head -1)
 
   if [ "$has_staged" = "yes" ] || [ "$has_unstaged" = "yes" ] || [ -n "$has_untracked" ]; then
@@ -204,8 +218,8 @@ while true; do
     if $DRY_RUN; then
       log "[DRY RUN] Would stage, commit, and push the above changes"
     else
-      # Stage only workspace changes
-      git add "$OPENCLAW_DEST"
+      # Stage only additions and modifications — never deletions
+      git add --ignore-removal "$OPENCLAW_DEST"
 
       # Check if there's actually anything to commit after staging
       if ! git diff --cached --quiet 2>/dev/null; then
