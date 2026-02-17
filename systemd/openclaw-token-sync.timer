@@ -1,0 +1,11 @@
+[Unit]
+Description=OpenClaw Session Token Sync Timer
+Documentation=https://docs.openclaw.ai
+
+[Timer]
+# Run every 2 minutes to keep tokens fresh
+OnBootSec=30sec
+OnUnitActiveSec=2min
+
+[Install]
+WantedBy=timers.target

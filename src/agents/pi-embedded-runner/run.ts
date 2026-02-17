@@ -334,15 +334,45 @@ export async function runEmbeddedPiAgent(
           lastProfileId = resolvedProfileId;
           return;
         }
+
+        const resolvedKey = apiKeyInfo.apiKey;
+
+        // Safety net: session ingress tokens (sk-ant-si-) MUST be sent as
+        // Bearer auth, never X-Api-Key.  Force OAuth/token mode if the auth
+        // resolution chain returned a different mode.
+        if (
+          resolvedKey.includes("sk-ant-si-") &&
+          apiKeyInfo.mode !== "oauth" &&
+          apiKeyInfo.mode !== "token"
+        ) {
+          log.warn("Forcing OAuth mode for session ingress token", {
+            originalMode: apiKeyInfo.mode,
+            source: apiKeyInfo.source,
+            provider: model.provider,
+          });
+          apiKeyInfo = { ...apiKeyInfo, mode: "token" };
+        }
+
+        log.info(
+          `applyApiKeyInfo resolved: provider=${model.provider} mode=${apiKeyInfo.mode} source=${apiKeyInfo.source} keyPrefix=${resolvedKey.substring(0, 15)} profile=${resolvedProfileId ?? "none"}`,
+        );
+
         if (model.provider === "github-copilot") {
           const { resolveCopilotApiToken } =
             await import("../../providers/github-copilot-token.js");
           const copilotToken = await resolveCopilotApiToken({
-            githubToken: apiKeyInfo.apiKey,
+            githubToken: resolvedKey,
           });
           authStorage.setRuntimeApiKey(model.provider, copilotToken.token);
+        } else if (apiKeyInfo.mode === "oauth" || apiKeyInfo.mode === "token") {
+          authStorage.set(model.provider, {
+            type: "oauth",
+            access: resolvedKey,
+            refresh: "",
+            expires: Date.now() + 86_400_000,
+          });
         } else {
-          authStorage.setRuntimeApiKey(model.provider, apiKeyInfo.apiKey);
+          authStorage.setRuntimeApiKey(model.provider, resolvedKey);
         }
         lastProfileId = apiKeyInfo.profileId;
       };

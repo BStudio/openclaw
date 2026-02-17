@@ -2,6 +2,7 @@ import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { ImageContent } from "@mariozechner/pi-ai";
 import { streamSimple } from "@mariozechner/pi-ai";
 import { createAgentSession, SessionManager, SettingsManager } from "@mariozechner/pi-coding-agent";
+import { readFileSync } from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import type { EmbeddedRunAttemptParams, EmbeddedRunAttemptResult } from "./types.js";
@@ -524,6 +525,190 @@ export async function runEmbeddedAttempt(
       // Force a stable streamFn reference so vitest can reliably mock @mariozechner/pi-ai.
       activeSession.agent.streamFn = streamSimple;
 
+      // Belt-and-suspenders: if auth chain fails to return a key for Anthropic,
+      // fall back to the ANTHROPIC_OAUTH_TOKEN env var (set by session-start hook).
+      const originalGetApiKey = activeSession.agent.getApiKey;
+      activeSession.agent.getApiKey = async (provider: string) => {
+        try {
+          const key = originalGetApiKey ? await originalGetApiKey(provider) : undefined;
+          if (key) {
+            return key;
+          }
+        } catch (err) {
+          log.warn("getApiKey: auth chain threw, attempting env var fallback", {
+            provider,
+            error: String(err),
+          });
+        }
+        if (provider === "anthropic" && process.env.ANTHROPIC_OAUTH_TOKEN) {
+          log.warn("getApiKey: falling back to ANTHROPIC_OAUTH_TOKEN env var", {
+            envPrefix: process.env.ANTHROPIC_OAUTH_TOKEN.substring(0, 15),
+          });
+          return process.env.ANTHROPIC_OAUTH_TOKEN;
+        }
+        return undefined;
+      };
+
+      // Re-read the session-ingress token directly from disk.  The server can
+      // rotate the token at any time; cached copies (env var, auth.json,
+      // in-memory AuthStorage) all go stale when that happens.
+      const SESSION_TOKEN_FILE =
+        process.env.OPENCLAW_SESSION_TOKEN_FILE ??
+        "/home/claude/.claude/remote/.session_ingress_token";
+
+      const readFreshSessionToken = (): string | undefined => {
+        try {
+          const token = readFileSync(SESSION_TOKEN_FILE, "utf8").trim();
+          return token || undefined;
+        } catch {
+          return undefined;
+        }
+      };
+
+      // Wrap streamFn to intercept the apiKey right before the Anthropic API
+      // call.  This is the last line of defense: if the cached key has gone
+      // stale due to server-side token rotation, swap it for the fresh token
+      // read from disk.
+      const baseStreamFn = activeSession.agent.streamFn;
+
+      // pi-ai's AssistantMessageEventStream.result() RESOLVES (not rejects)
+      // even on API errors.  The error is embedded in the resolved value as
+      // { stopReason: "error", errorMessage: "..." }.  So we must check the
+      // resolved value, not use .catch().
+      const logStreamResult = (
+        stream: ReturnType<typeof baseStreamFn>,
+        label: string,
+      ): ReturnType<typeof baseStreamFn> => {
+        const checkResult = (s: { result?: () => Promise<unknown> }) => {
+          if (typeof s.result !== "function") {
+            return;
+          }
+          s.result().then(
+            (resolved: unknown) => {
+              if (
+                resolved &&
+                typeof resolved === "object" &&
+                "stopReason" in resolved &&
+                (resolved as { stopReason: string }).stopReason === "error"
+              ) {
+                const r = resolved as { errorMessage?: string; stopReason: string };
+                log.error(
+                  `streamFn ${label} API ERROR: stopReason=${r.stopReason} errorMessage=${r.errorMessage ?? "(none)"}`,
+                );
+              }
+            },
+            (err: unknown) => {
+              log.error(
+                `streamFn ${label} REJECT: ${err instanceof Error ? err.message : JSON.stringify(err)}`,
+              );
+            },
+          );
+        };
+
+        if (stream && typeof (stream as { result?: unknown }).result === "function") {
+          checkResult(stream as { result: () => Promise<unknown> });
+        } else if (stream instanceof Promise) {
+          stream.then(
+            (resolved) => {
+              if (resolved && typeof (resolved as { result?: unknown }).result === "function") {
+                checkResult(resolved as { result: () => Promise<unknown> });
+              }
+            },
+            (err: unknown) =>
+              log.error(`streamFn ${label} PROMISE ERROR: ${(err as Error)?.message ?? err}`),
+          );
+        }
+        return stream;
+      };
+
+      activeSession.agent.streamFn = (model, context, options) => {
+        const currentKey = options?.apiKey;
+        const isSiKey = typeof currentKey === "string" && currentKey.includes("sk-ant-si-");
+        const keyPrefix = typeof currentKey === "string" ? currentKey.substring(0, 15) : "(none)";
+        const keyLen = typeof currentKey === "string" ? currentKey.length : 0;
+
+        // Include key details in the message string so they appear in gateway log
+        log.info(
+          `streamFn: provider=${model.provider} keyLen=${keyLen} keyPrefix=${keyPrefix} isSiKey=${isSiKey} baseUrl=${model.baseUrl ?? "(default)"}`,
+        );
+
+        // Intercept fetch to convert sk-ant-si-* tokens from x-api-key to Bearer auth
+        const origFetch = globalThis.fetch;
+        let tokenToConvert: string | null = null;
+
+        if (model.provider === "anthropic") {
+          // Layer 1: Re-read token from disk to detect server-side rotation.
+          const freshToken = readFreshSessionToken();
+          if (freshToken && freshToken !== currentKey) {
+            log.warn(
+              `streamFn: REPLACING stale apiKey with fresh token from disk (old=${keyPrefix} new=${freshToken.substring(0, 15)})`,
+            );
+            process.env.ANTHROPIC_OAUTH_TOKEN = freshToken;
+            if (freshToken.includes("sk-ant-si-")) {
+              tokenToConvert = freshToken;
+            }
+            const freshResult = logStreamResult(
+              baseStreamFn(model, context, { ...options, apiKey: freshToken }),
+              "fresh-token",
+            );
+            return freshResult;
+          }
+
+          // Layer 2: If no token file but env var differs, use env var.
+          const oauthToken = process.env.ANTHROPIC_OAUTH_TOKEN;
+          if (!isSiKey && oauthToken?.includes("sk-ant-si-")) {
+            log.warn(
+              `streamFn: REPLACING apiKey — old=${keyPrefix} env=${oauthToken.substring(0, 15)}`,
+            );
+            tokenToConvert = oauthToken;
+            const envResult = logStreamResult(
+              baseStreamFn(model, context, { ...options, apiKey: oauthToken }),
+              "env-swap",
+            );
+            return envResult;
+          }
+
+          // Layer 3: Convert session ingress tokens to Bearer auth via fetch intercept
+          if (isSiKey) {
+            log.info(`streamFn: will convert sk-ant-si-* token to Bearer auth via fetch intercept`);
+            tokenToConvert = currentKey;
+          }
+        }
+
+        // Install fetch intercept if we need to convert a token
+        if (tokenToConvert) {
+          globalThis.fetch = (async (
+            input: RequestInfo | URL,
+            init?: RequestInit,
+          ): Promise<Response> => {
+            const url =
+              typeof input === "string"
+                ? input
+                : input instanceof URL
+                  ? input.toString()
+                  : input.url;
+            if (url.includes("anthropic.com") && tokenToConvert) {
+              const headers = new Headers(init?.headers);
+              if (headers.has("x-api-key") && headers.get("x-api-key") === tokenToConvert) {
+                log.info(`fetch intercept: converting x-api-key to Bearer for sk-ant-si-* token`);
+                headers.delete("x-api-key");
+                headers.set("Authorization", `Bearer ${tokenToConvert}`);
+                const modifiedInit = { ...init, headers };
+                const response = await origFetch(input, modifiedInit);
+                globalThis.fetch = origFetch;
+                return response;
+              }
+            }
+            const response = await origFetch(input, init);
+            globalThis.fetch = origFetch;
+            return response;
+          }) as typeof globalThis.fetch;
+        }
+
+        const result = logStreamResult(baseStreamFn(model, context, options), "default");
+        return result;
+      };
+
       applyExtraParamsToAgent(
         activeSession.agent,
         params.config,
@@ -826,6 +1011,44 @@ export async function runEmbeddedAttempt(
             note: `images: prompt=${imageResult.images.length} history=${imageResult.historyImagesByIndex.size}`,
           });
 
+          // ── Canary API test ──────────────────────────────────────────
+          // Make a raw fetch() call to Anthropic using the exact same token
+          // to confirm it works from THIS process (not just the diagnostic hook).
+          if (params.provider === "anthropic") {
+            const canaryToken = readFreshSessionToken() ?? process.env.ANTHROPIC_OAUTH_TOKEN;
+            if (canaryToken?.includes("sk-ant-si-")) {
+              try {
+                const canaryResp = await fetch("https://api.anthropic.com/v1/messages", {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${canaryToken}`,
+                    "anthropic-version": "2023-06-01",
+                    "anthropic-beta":
+                      "claude-code-20250219,oauth-2025-04-20,fine-grained-tool-streaming-2025-05-14,interleaved-thinking-2025-05-14",
+                  },
+                  body: JSON.stringify({
+                    model: params.modelId,
+                    max_tokens: 5,
+                    messages: [{ role: "user", content: "Say ok" }],
+                  }),
+                  signal: AbortSignal.timeout(10_000),
+                });
+                log.info(
+                  `canary API test: model=${params.modelId} status=${canaryResp.status} ok=${canaryResp.ok}`,
+                );
+                if (!canaryResp.ok) {
+                  const body = await canaryResp.text().catch(() => "(unreadable)");
+                  log.error(`canary API test FAILED: ${body.substring(0, 500)}`);
+                }
+              } catch (canaryErr) {
+                log.error(
+                  `canary API test exception: ${canaryErr instanceof Error ? canaryErr.message : String(canaryErr)}`,
+                );
+              }
+            }
+          }
+
           // Only pass images option if there are actually images to pass
           // This avoids potential issues with models that don't expect the images parameter
           if (imageResult.images.length > 0) {
@@ -839,6 +1062,23 @@ export async function runEmbeddedAttempt(
           log.debug(
             `embedded run prompt end: runId=${params.runId} sessionId=${params.sessionId} durationMs=${Date.now() - promptStartedAt}`,
           );
+        }
+
+        // ── Post-prompt error detection ─────────────────────────────
+        // Check the last assistant message for embedded API errors
+        // (pi-ai resolves .result() with error info instead of rejecting).
+        {
+          const lastMsg = activeSession.messages
+            .slice()
+            .toReversed()
+            .find((m: AgentMessage) => m.role === "assistant");
+          if (lastMsg && "stopReason" in lastMsg && lastMsg.stopReason === "error") {
+            const errMsg =
+              "errorMessage" in lastMsg && typeof lastMsg.errorMessage === "string"
+                ? lastMsg.errorMessage
+                : "(no errorMessage)";
+            log.error(`prompt returned error message: stopReason=error errorMessage=${errMsg}`);
+          }
         }
 
         try {

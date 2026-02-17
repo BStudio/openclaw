@@ -1,0 +1,10 @@
+[Unit]
+Description=OpenClaw Session Token Sync
+Documentation=https://docs.openclaw.ai
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/user/openclaw
+ExecStart=/bin/bash /home/user/openclaw/scripts/sync-agent-tokens.sh
+StandardOutput=journal
+StandardError=journal
