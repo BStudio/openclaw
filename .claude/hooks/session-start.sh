@@ -180,4 +180,18 @@ if [ -n "$BRANCH" ]; then
   echo "[session-start] Marked .openclaw-workspace/ as skip-worktree" >&2
 fi
 
+# --- Start auto-commit watcher (background) ---
+AUTO_COMMIT_PID_FILE="/tmp/openclaw-auto-commit.pid"
+if [ -f "$AUTO_COMMIT_PID_FILE" ] && kill -0 "$(cat "$AUTO_COMMIT_PID_FILE")" 2>/dev/null; then
+  echo "[session-start] Auto-commit watcher already running (PID $(cat "$AUTO_COMMIT_PID_FILE"))" >&2
+else
+  if [ -n "$BRANCH" ]; then
+    nohup bash "$CLAUDE_PROJECT_DIR/scripts/auto-commit-watcher.sh" -q -b "$BRANCH" > /tmp/openclaw-auto-commit.log 2>&1 &
+    echo "$!" > "$AUTO_COMMIT_PID_FILE"
+    echo "[session-start] Auto-commit watcher started (PID $!, branch: $BRANCH)" >&2
+  else
+    echo "[session-start] Skipping auto-commit watcher (no branch detected)" >&2
+  fi
+fi
+
 exit 0
