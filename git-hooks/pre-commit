@@ -1,4 +1,25 @@
 #!/bin/sh
+
+# ── Guard: never allow deletion of .openclaw-workspace/ files ──
+# The auto-commit watcher manages this directory. On fresh containers,
+# race conditions can make workspace files appear as deleted. This guard
+# silently unstages any such deletions and restores the files.
+DELETED_WS=$(git diff --cached --name-only --diff-filter=D -- .openclaw-workspace/ 2>/dev/null)
+if [ -n "$DELETED_WS" ]; then
+  echo "[pre-commit] Blocking deletion of .openclaw-workspace/ files:" >&2
+  echo "$DELETED_WS" | while read -r f; do
+    echo "  - $f" >&2
+    git reset HEAD -- "$f" >/dev/null 2>&1
+  done
+  git checkout -- .openclaw-workspace/ >/dev/null 2>&1
+  # If nothing else is staged, abort the commit
+  if git diff --cached --quiet 2>/dev/null; then
+    echo "[pre-commit] No other changes to commit. Aborting." >&2
+    exit 1
+  fi
+fi
+
+# ── Lint & format staged files ──
 FILES=$(git diff --cached --name-only --diff-filter=ACMR | sed 's| |\\ |g')
 [ -z "$FILES" ] && exit 0
 
