@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+# DEPRECATED: Use the bundled session-lifecycle hook instead.
+# See src/hooks/bundled/session-lifecycle/handler.ts
+# The in-process hook posts to the session ingress API and monitors the
+# command queue directly — this bash script is kept for reference only.
+#
 # Activity-based keep-alive monitor for OpenClaw gateway
 # Keeps session alive while agents are working
 # Exits after 5 minutes of idle time
