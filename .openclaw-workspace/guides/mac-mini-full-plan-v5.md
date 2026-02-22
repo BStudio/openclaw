@@ -126,6 +126,13 @@ _~15 minutes_
 
 ### 1.1 Export Workspace from Current Container
 
+**Optional but recommended:** Update OpenClaw on the CC container before migrating to ensure config compatibility:
+
+```bash
+npm install -g openclaw@latest
+openclaw doctor --non-interactive
+```
+
 Run on current setup to create a portable backup:
 
 ```bash
@@ -1575,7 +1582,7 @@ open vnc://100.x.y.z                   # GUI (from macOS)
 - [ ] Install Homebrew
 - [ ] **Check Node version FIRST:** `brew info node | head -5`
 - [ ] Install Node.js and jq (`brew install node jq` or use `node@22`/`fnm` if needed)
-- [ ] Verify Node >= 22 and <= 23 (`node --version`)
+- [ ] Verify Node >= 22 (`node --version`)
 - [ ] Pin Node.js version (`brew pin node`)
 
 ### Install Tools (~10 min)
@@ -1737,3 +1744,24 @@ open vnc://100.x.y.z                   # GUI (from macOS)
     - **M1-M15:** All minor improvements including: CLI deprecation notes, iCloud FileVault escrow option, install time estimates, Tailscale App Store option, SSH config convenience, cost table hardware, Healthchecks.io setup details, gentler npm cache commands, update channel verification, persistent log strategy, alert frequency, parallel testing recommendation, bash portability, GitHub PAT notes, checklist clarity improvements
   - **Updated:** Version to v5.0, date to June 2026, total time estimate to 4 hours, expanded Phase 6 to 25 min and Phase 8 to 25 min, Phase 10 to 20 min
   - **Enhanced:** Architecture diagram with monitoring approach, cost table with hardware, disaster recovery with auth scenarios, troubleshooting with additional scenarios
+- **v5.1 (2026-06-22):**
+  - **CRITICAL FIXES:**
+    - **C1:** Replace `timeout` command with macOS-compatible alternative in Phase 6.1 (macOS doesn't have GNU timeout)
+    - **C2:** Fix alert_kamil function - removed dead `openclaw message send` command, use Telegram API as primary with optional healthchecks.io fallback
+    - **C3:** Fix git remote URL in Phase 4.3 - change from SSH to HTTPS, add `git branch -M main`, note about switching to SSH after Phase 8
+  - **SIGNIFICANT FIXES:**
+    - **S1:** Restructure Node install as conditional flow in Phase 2.5 - present version check and alternatives as equal paths, not buried in warning box
+    - **S2:** Add fnm PATH note for launchd - fnm better for dev, recommend brew install for servers with stable absolute paths
+    - **S3:** Initialize UPDATE_SUCCESS=false in daily-maintenance.sh to prevent undefined variable checks
+    - **S4:** Add workspace commit gap note in Phase 10.2 - commits should be in HEARTBEAT.md or manual until heartbeats configured
+    - **S5:** Mark Tailscale Serve config as "verify keys" rather than copy-paste ready
+    - **S6:** Fix gateway auth restart note in Phase 8.5 - auth token changes require restart, not hot-reloaded
+    - **S7:** Fix Node version constraint - change to "must be >= 22.x.x" with note about newer versions
+  - **MINOR FIXES:**
+    - **M1:** Tighten pgrep pattern in Phase 5.5 - remove .\* wildcard
+    - **M2:** Add version check after rollback in maintenance script
+    - **M3:** Remove hedging "(if --deep flag exists)" from Phase 5.3
+    - **M4:** Fix cost table - minimum $205 not $255, show as "$205 + $50-100 insurance"
+    - **M5:** Fix DR git clone - don't embed PAT in URL, use credential helper note
+    - **M6:** Add explicit back-reference from Phase 9.2 to Phase 6.3
+    - **M7:** Add note about updating OpenClaw on CC container before migrating (optional but recommended)
