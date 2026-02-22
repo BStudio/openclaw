@@ -1037,7 +1037,7 @@ Create `~/Library/LaunchAgents/com.openclaw.auto-update.plist`:
         <key>Hour</key>
         <integer>5</integer>
         <key>Minute</key>
-        <integer>0</integer>
+        <integer>30</integer>
     </dict>
     <key>StandardOutPath</key>
     <string>/Users/kamil/.openclaw/logs/auto-update-stdout.log</string>
@@ -1058,7 +1058,7 @@ Create `~/Library/LaunchAgents/com.openclaw.auto-update.plist`:
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.openclaw.auto-update.plist
 ```
 
-**What this does daily at 5 AM:**
+**What this does daily at 5:30 AM** (offset from token refresh at 4 AM to avoid overlap):
 
 1. Checks npm registry for new OpenClaw version
 2. If no update → exits silently
@@ -1195,6 +1195,21 @@ git commit -m "Workspace update $(date +%Y-%m-%d)"
 ```
 
 **Never `git add -A` or `git add .`** — specific files only.
+
+### 10.2.1 Back Up Scripts and Plists to Workspace
+
+Your custom scripts (`~/.openclaw/scripts/`) and launchd plists (`~/Library/LaunchAgents/com.openclaw.*.plist`) aren't in the workspace git by default. Store reference copies so they survive a "from scratch" recovery:
+
+```bash
+cd ~/.openclaw/workspace
+mkdir -p reference/scripts reference/plists
+cp ~/.openclaw/scripts/*.sh reference/scripts/
+cp ~/Library/LaunchAgents/com.openclaw.*.plist reference/plists/
+git add reference/
+git commit -m "Add reference copies of scripts and plists"
+```
+
+During recovery, copy them back and update the absolute paths for the new machine.
 
 ### 10.3 Network Down Alerting
 
@@ -1351,7 +1366,7 @@ If the Mac Mini dies, gets replaced, or needs a fresh start:
 | UPS (one-time ~$60, then $0) | $0/mo                                |
 | Telegram bot                 | free                                 |
 | Tailscale                    | free (personal)                      |
-| UptimeRobot                  | free tier                            |
+| Healthchecks.io              | free tier                            |
 | API fallback budget          | $50-100 (insurance, may not be used) |
 | **Total**                    | **~$205-305/mo**                     |
 
@@ -1405,7 +1420,7 @@ open vnc://<tailscale-ip>              # GUI (from macOS)
 | Telegram not working        | `openclaw doctor`                  | Check bot token, one instance only                                                         |
 | Mac Mini sleeping           | `pmset -g`                         | `sudo pmset -a sleep 0`                                                                    |
 | After power outage          | `openclaw gateway status`          | launchd auto-restarts; verify                                                              |
-| Config issues               | `openclaw doctor`                  | `openclaw doctor --fix`                                                                    |
+| Config issues               | `openclaw doctor`                  | `openclaw doctor --yes` (auto-accepts safe fixes)                                          |
 | Update broke things         | `~/.openclaw/logs/auto-update.log` | `npm install -g openclaw@<old-version>`                                                    |
 | Disk full                   | `df -h /`                          | `brew cleanup && npm cache clean --force`                                                  |
 | Can't SSH remotely          | Tailscale app on phone             | Check both devices on same tailnet                                                         |
@@ -1420,7 +1435,7 @@ open vnc://<tailscale-ip>              # GUI (from macOS)
 
 - [ ] Export workspace backup (tar.gz)
 - [ ] Export openclaw.json config backup
-- [ ] Export auth profiles backup
+- [ ] Export auth profiles + credentials backup
 - [ ] Note Telegram bot token
 - [ ] Send backups to Kamil via Telegram
 
@@ -1518,7 +1533,7 @@ open vnc://<tailscale-ip>              # GUI (from macOS)
 
 - [ ] Enable Time Machine
 - [ ] Optional: Push workspace git to private remote
-- [ ] Optional: Set up UptimeRobot
+- [ ] Optional: Set up Healthchecks.io dead man's switch
 - [ ] Optional: Add disk space check to HEARTBEAT.md
 
 ### Verify Unknowns (first week)
