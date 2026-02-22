@@ -27,13 +27,15 @@ A single bash script (`mac-mini-setup.sh`) that takes a fresh Mac Mini from unbo
 The user must have:
 
 1. ✅ A Mac Mini M4 with macOS booted and initial setup complete (Apple ID, user account created)
-2. ✅ Internet connection (Wi-Fi or Ethernet)
-3. ✅ Admin user account (the one they'll run OpenClaw under)
-4. ✅ Workspace backup file downloaded to ~/Downloads/ (from CC container via Telegram)
-5. ✅ Config backup file downloaded to ~/Downloads/ (optional — script can create fresh config)
-6. ✅ Telegram bot token (from @BotFather or existing config backup)
-7. ✅ Anthropic API key (for fallback auth — from console.anthropic.com)
-8. ✅ UPS connected via USB (recommended, not required)
+2. ✅ **All pending macOS software updates applied** (System Settings → Software Update — do this before running the script)
+3. ✅ Internet connection (Wi-Fi or Ethernet)
+4. ✅ Admin user account (the one they'll run OpenClaw under)
+5. ✅ **Old CC container gateway stopped** (run `openclaw gateway stop` on old machine first)
+6. ✅ Workspace backup file downloaded to ~/Downloads/ (from CC container via Telegram)
+7. ✅ Config backup file downloaded to ~/Downloads/ (optional — script can create fresh config)
+8. ✅ Telegram bot token available (from @BotFather or existing config backup)
+9. ✅ Anthropic API key available (for fallback auth — from console.anthropic.com)
+10. ✅ UPS connected via USB (recommended, not required)
 
 ---
 
