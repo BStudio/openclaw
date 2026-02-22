@@ -1,4 +1,4 @@
-# Mac Mini Full Plan v5.1 — Architecture, Auth & Strategy
+# Mac Mini Full Plan v5.2 — Architecture, Auth & Strategy
 
 _Last updated: 2026-06-22_
 
@@ -189,7 +189,15 @@ _~45 minutes_
 
 ### 2.1 Hardware: UPS (Recommended)
 
-Get a basic UPS (~$50-80). The Mac Mini is a 24/7 server now — a power outage mid-write can corrupt OpenClaw's SQLite database or auth files. A UPS gives you clean shutdown time.
+Get a basic UPS (~$50-80) **with USB output**. The Mac Mini is a 24/7 server now — a power outage mid-write can corrupt OpenClaw's SQLite database or auth files. A UPS gives you clean shutdown time.
+
+**Connect the UPS to the Mac Mini via USB.** macOS natively manages USB-connected UPS units. Once connected:
+
+```
+System Settings → Battery → UPS
+```
+
+Configure it to shut down the Mac Mini automatically when the battery level is low (e.g., 20%). This ensures a graceful shutdown before the UPS dies — without USB, the UPS just delays the crash with no automation.
 
 ### 2.2 macOS System Config
 
@@ -313,17 +321,28 @@ xcode-select --install
 echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> ~/.zprofile
 eval "$(/opt/homebrew/bin/brew shellenv)"
 
-# Check what Homebrew will install
+# Check what version Homebrew will install
 brew info node | head -5
+```
 
-# If version shown is 22.x → brew install node jq
-# If version shown is 23.x or higher → use node@22 instead:
-#   brew install node@22 jq
-#   echo 'export PATH="/opt/homebrew/opt/node@22/bin:$PATH"' >> ~/.zprofile
-#   source ~/.zprofile
+**Option A: If Homebrew shows Node 22.x** (ideal):
 
-# Verify
-node --version  # must be >= 22.x.x (Very new major versions (24+) may have untested compatibility — check OpenClaw release notes)
+```bash
+brew install node jq
+```
+
+**Option B: If Homebrew shows Node 23.x or higher** (use versioned formula):
+
+```bash
+brew install node@22 jq
+echo 'export PATH="/opt/homebrew/opt/node@22/bin:$PATH"' >> ~/.zprofile
+source ~/.zprofile
+```
+
+Verify:
+
+```bash
+node --version  # must be >= 22.x.x (24+ may have untested compatibility — check OpenClaw release notes)
 ```
 
 **Alternative: Node version manager (better for dev workstations):**
