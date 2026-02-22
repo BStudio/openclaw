@@ -1,4 +1,4 @@
-# Mac Mini Full Plan v4.2 — Architecture, Auth & Strategy
+# Mac Mini Full Plan v4.2.1 — Architecture, Auth & Strategy
 
 _Last updated: 2026-02-22_
 
@@ -406,6 +406,7 @@ _~10 minutes_
 
 ```bash
 cd ~/.openclaw/workspace
+# Adjust the path if you downloaded from Telegram (likely ~/Downloads/)
 tar xzf ~/kai-workspace-backup.tar.gz
 ```
 
@@ -1614,3 +1615,10 @@ open vnc://<tailscale-ip>              # GUI (from macOS)
     - Fixed `doctor --fix` → `doctor --yes` inconsistency in troubleshooting table
     - Offset auto-update to 5:30 AM (avoids overlap with token refresh at 4 AM)
     - Expanded SSH hardening steps: verify keys from ALL devices via Tailscale before disabling passwords
+  - **v4.2.1 (2026-02-22):**
+    - Fixed sshd_config formatting — config lines were inside bash comments with `#` prefix, which would make them inactive comments in sshd_config (SSH hardening silently fails). Now shown as plain config with clear instructions and tip for existing entries
+    - Fixed FileVault troubleshooting row: "Monitor / local VNC" → "Physical monitor + keyboard" (VNC not available at pre-boot screen)
+    - Added specific stop command for Phase 5.1 (old CC container: `openclaw gateway stop`)
+    - Added persistent log rotation via macOS newsyslog (without it, custom log path grows unbounded)
+    - Added security note to delete auth backup from Telegram after downloading
+    - Added path hint for tar extraction (~/Downloads/ if downloaded from Telegram)
