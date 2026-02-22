@@ -306,38 +306,30 @@ xcode-select --install
 echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> ~/.zprofile
 eval "$(/opt/homebrew/bin/brew shellenv)"
 
-# Check Node.js version FIRST before installing
+# Check what Homebrew will install
 brew info node | head -5
-# Look at the version shown. If it's 24.x or higher, see the note below.
 
-# Install Node.js and jq
-brew install node jq
+# If version shown is 22.x → brew install node jq
+# If version shown is 23.x or higher → use node@22 instead:
+#   brew install node@22 jq
+#   echo 'export PATH="/opt/homebrew/opt/node@22/bin:$PATH"' >> ~/.zprofile
+#   source ~/.zprofile
 
 # Verify
-node --version  # must be >= 22.x.x and <= 23.x.x for OpenClaw compatibility
+node --version  # must be >= 22.x.x for OpenClaw compatibility
 ```
 
-> **⚠️ Node Version Management:** Homebrew's `node` formula tracks the latest Node.js version. If `brew info node` shows version 24.x or higher, OpenClaw may not support it yet. Use one of these alternatives:
->
-> **Option A: Version-specific formula (keg-only):**
->
-> ```bash
-> brew install node@22
-> echo 'export PATH="/opt/homebrew/opt/node@22/bin:$PATH"' >> ~/.zprofile
-> source ~/.zprofile
-> ```
->
-> **Option B: Node version manager:**
->
-> ```bash
-> brew install fnm
-> fnm install 22
-> fnm use 22
-> fnm default 22
-> echo 'eval "$(fnm env --use-on-cd)"' >> ~/.zprofile
-> ```
->
-> Verify the version after installation: `node --version` should show 22.x.x
+**Alternative: Node version manager (better for dev workstations):**
+
+```bash
+brew install fnm
+fnm install 22
+fnm use 22
+fnm default 22
+echo 'eval "$(fnm env --use-on-cd)"' >> ~/.zprofile
+```
+
+> **Note:** fnm is better suited for dev workstations, not servers. For a 24/7 server with launchd, recommend `brew install node` or `node@22` directly since launchd needs stable absolute paths. If someone insists on fnm, note they must update the plist PATH to include `$(dirname $(fnm exec which node))`.
 
 **Pin Node.js version** (prevents accidental major version bumps):
 
@@ -492,11 +484,12 @@ git commit -m "Initial workspace migration from CC container"
 **Add private remote for off-site backup** (required for disaster recovery):
 
 ```bash
-git remote add origin git@github.com:kamil/kai-workspace.git
+git remote add origin https://github.com/kamil/kai-workspace.git
+git branch -M main
 git push -u origin main
 ```
 
-> **⚠️ This step is required, not optional.** The disaster recovery procedure depends on having the workspace backed up outside the Mac Mini.
+> **⚠️ This step is required, not optional.** The disaster recovery procedure depends on having the workspace backed up outside the Mac Mini. Note: Using HTTPS since SSH keys don't exist yet (Phase 8). Can switch to SSH after Phase 8 is complete.
 
 ---
 
@@ -574,9 +567,18 @@ The setup-token refresh automation is **likely non-interactive and works reliabl
 **Test interactive behavior first:**
 
 ```bash
-# Test if claude setup-token works without browser interaction
-timeout 10s claude setup-token 2>/dev/null
-echo "Exit code: $?"
+# macOS-compatible timeout test (macOS doesn't have GNU timeout)
+claude setup-token 2>/dev/null &
+PID=$!
+sleep 10
+if kill -0 $PID 2>/dev/null; then
+    kill $PID 2>/dev/null
+    wait $PID 2>/dev/null
+    echo "Timed out — likely needs browser auth. Manual refresh required."
+else
+    wait $PID
+    echo "Exit code: $? (0 = token generated successfully)"
+fi
 ```
 
 If it outputs a token without opening a browser (exit 0), the automation will work. If it times out, hangs, or opens a browser, manual refresh is needed.
@@ -636,30 +638,20 @@ log() { echo "[$(date -u '+%Y-%m-%d %H:%M:%S UTC')] $1" >> "$LOG"; }
 
 alert_kamil() {
     local msg="$1"
-    local priority="${2:-normal}"
 
-    # Primary: Telegram via OpenClaw (more resilient to config changes)
-    if "$OPENCLAW" message send --channel telegram --target "455442541" --text "$msg" >> "$LOG" 2>&1; then
-        log "Alert sent via OpenClaw"
-        return 0
-    fi
-
-    # Fallback: Direct Telegram API
+    # Primary: Direct Telegram API
     local BOT_TOKEN
     BOT_TOKEN=$("$JQ" -r '.channels.telegram.botToken // empty' "$OPENCLAW_HOME/openclaw.json" 2>/dev/null)
     if [ -n "$BOT_TOKEN" ]; then
-        if "$CURL" -s "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
+        "$CURL" -s "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
             -d chat_id="455442541" \
             -d text="$msg" \
-            > /dev/null 2>&1; then
-            log "Alert sent via Telegram API fallback"
-            return 0
-        fi
+            > /dev/null 2>&1 && return 0
     fi
 
-    log "ERROR: Failed to send alert: $msg"
-    # Note: Could add healthchecks.io ping failure here as tertiary fallback
-    return 1
+    log "ALERT DELIVERY FAILED: $msg"
+    # Optional: ping healthchecks.io fail endpoint
+    # $CURL -fsS -m 10 "https://hc-ping.com/<uuid>/fail" > /dev/null 2>&1
 }
 
 needs_restart=false
