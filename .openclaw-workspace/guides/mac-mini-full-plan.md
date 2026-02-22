@@ -696,7 +696,10 @@ sudo nano /etc/ssh/sshd_config
 # Find and change (or add) these lines:
 # PasswordAuthentication no
 # KbdInteractiveAuthentication no
-# UsePAM no
+#
+# Keep UsePAM yes (default) — macOS needs PAM for account integration.
+# Disabling it can break system auth features. The two lines above are
+# sufficient to block password-based SSH login.
 ```
 
 Then restart SSH:
@@ -826,28 +829,9 @@ Access via `https://mac-mini.your-tailnet.ts.net/`
 
 ### 8.3 Startup Ordering (After Power Outage)
 
-After a power outage, launchd starts services before Wi-Fi/DNS may be ready. OpenClaw handles network unavailability gracefully (retries), but to avoid noisy crash loops in logs:
+After a power outage + FileVault unlock, launchd starts the OpenClaw gateway service. If Wi-Fi/DNS isn't ready yet, the gateway's first connection attempts will fail — but **this is handled automatically.** OpenClaw's Telegram plugin uses long-polling with built-in reconnection and exponential backoff. It will retry until the network is available.
 
-Create `~/.openclaw/scripts/gateway-start-delay.sh`:
-
-```bash
-#!/bin/bash
-# Wait for network before starting gateway (launchd helper)
-for i in $(seq 1 30); do
-    if /sbin/ping -c 1 -W 1 1.1.1.1 >/dev/null 2>&1; then
-        exec /opt/homebrew/bin/openclaw gateway run
-    fi
-    sleep 2
-done
-# Start anyway after 60s — let OpenClaw handle retries
-exec /opt/homebrew/bin/openclaw gateway run
-```
-
-```bash
-chmod +x ~/.openclaw/scripts/gateway-start-delay.sh
-```
-
-> **Note:** This is optional. OpenClaw's Telegram plugin uses long-polling with built-in reconnection — it handles network flaps. The delay script just makes boot-time logs cleaner.
+You'll see a few connection errors in the first 10-30 seconds of logs after boot. This is normal and resolves itself. No action needed.
 
 ---
 
@@ -922,8 +906,12 @@ alert_kamil() {
 
 log "=== Starting auto-update check ==="
 
-# Step 1: Record current version (for rollback)
-CURRENT_VERSION=$("$OPENCLAW" --version 2>/dev/null || echo "unknown")
+# Step 1: Record current installed version (for rollback)
+# Use npm list to get the exact installed semver — guaranteed same format as npm view
+CURRENT_VERSION=$("$NPM" list -g openclaw --json 2>/dev/null | "$JQ" -r '.dependencies.openclaw.version // empty')
+if [ -z "$CURRENT_VERSION" ]; then
+    CURRENT_VERSION=$("$OPENCLAW" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "unknown")
+fi
 log "Current version: $CURRENT_VERSION"
 
 # Step 2: Check if update is available
@@ -1262,7 +1250,8 @@ If the Mac Mini dies, gets replaced, or needs a fresh start:
 3. **Restore workspace from git:**
    ```bash
    cd ~/.openclaw
-   git clone git@github.com:kamil/kai-workspace.git workspace
+   # Use HTTPS — SSH keys won't exist on a fresh machine
+   git clone https://github.com/kamil/kai-workspace.git workspace
    ```
 4. **Re-authenticate:**
    ```bash
