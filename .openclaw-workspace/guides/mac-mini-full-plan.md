@@ -1,4 +1,4 @@
-# Mac Mini Full Plan v4 — Architecture, Auth & Strategy
+# Mac Mini Full Plan v4.1 — Architecture, Auth & Strategy
 
 _Last updated: 2026-02-22_
 
@@ -1117,7 +1117,11 @@ macOS updates can reboot the machine and sometimes break things:
    sudo softwareupdate --list
    sudo softwareupdate --install --recommended
    ```
-5. If it requires a reboot, the Mac Mini will restart, FileVault will unlock (if you pre-authorized with `sudo fdesetup authrestart`), launchd will start OpenClaw, and Kai comes back.
+5. If it requires a reboot, pre-authorize FileVault first:
+   ```bash
+   sudo fdesetup authrestart
+   ```
+   The Mac Mini reboots, skips the FileVault password screen (once), launchd starts OpenClaw, Kai comes back — all unattended.
 6. Verify: `ssh kamil@<tailscale-ip> "openclaw gateway status"`
 
 **Security-only updates** (no reboot needed) — apply these promptly:
@@ -1364,19 +1368,19 @@ open vnc://<tailscale-ip>              # GUI (from macOS)
 
 ### Troubleshooting
 
-| Problem                     | Check                              | Fix                                                                   |
-| --------------------------- | ---------------------------------- | --------------------------------------------------------------------- |
-| Kai not responding          | `openclaw gateway status`          | `openclaw gateway restart`                                            |
-| Auth errors                 | `openclaw models status --check`   | `claude setup-token` + `paste-token`                                  |
-| Telegram not working        | `openclaw doctor`                  | Check bot token, one instance only                                    |
-| Mac Mini sleeping           | `pmset -g`                         | `sudo pmset -a sleep 0`                                               |
-| After power outage          | `openclaw gateway status`          | launchd auto-restarts; verify                                         |
-| Config issues               | `openclaw doctor`                  | `openclaw doctor --fix`                                               |
-| Update broke things         | `~/.openclaw/logs/auto-update.log` | `npm install -g openclaw@<old-version>`                               |
-| Disk full                   | `df -h /`                          | `brew cleanup && npm cache clean --force`                             |
-| Can't SSH remotely          | Tailscale app on phone             | Check both devices on same tailnet                                    |
-| FileVault lock after reboot | Monitor on Mac Mini                | Enter password locally, or pre-authorize: `sudo fdesetup authrestart` |
-| Node version mismatch       | `node --version`                   | `brew install node` (check OpenClaw reqs first)                       |
+| Problem                     | Check                              | Fix                                                                                        |
+| --------------------------- | ---------------------------------- | ------------------------------------------------------------------------------------------ |
+| Kai not responding          | `openclaw gateway status`          | `openclaw gateway restart`                                                                 |
+| Auth errors                 | `openclaw models status --check`   | `claude setup-token` + `paste-token`                                                       |
+| Telegram not working        | `openclaw doctor`                  | Check bot token, one instance only                                                         |
+| Mac Mini sleeping           | `pmset -g`                         | `sudo pmset -a sleep 0`                                                                    |
+| After power outage          | `openclaw gateway status`          | launchd auto-restarts; verify                                                              |
+| Config issues               | `openclaw doctor`                  | `openclaw doctor --fix`                                                                    |
+| Update broke things         | `~/.openclaw/logs/auto-update.log` | `npm install -g openclaw@<old-version>`                                                    |
+| Disk full                   | `df -h /`                          | `brew cleanup && npm cache clean --force`                                                  |
+| Can't SSH remotely          | Tailscale app on phone             | Check both devices on same tailnet                                                         |
+| FileVault lock after reboot | Monitor / local VNC                | Enter password at FileVault screen. For planned reboots: `sudo fdesetup authrestart` first |
+| Node version mismatch       | `node --version`                   | `brew install node` (check OpenClaw reqs first)                                            |
 
 ---
 
@@ -1403,8 +1407,7 @@ open vnc://<tailscale-ip>              # GUI (from macOS)
 - [ ] Display sleep 10 min (`pmset -a displaysleep 10`)
 - [ ] Auto-restart after power failure (`pmset -a autorestart 1`)
 - [ ] Disable automatic macOS updates
-- [ ] Enable automatic login
-- [ ] **Enable FileVault** — save recovery key securely
+- [ ] **Enable FileVault** — save recovery key securely (disables automatic login — this is expected)
 - [ ] Enable Remote Login (SSH)
 - [ ] Enable Screen Sharing (VNC)
 - [ ] Install Homebrew
@@ -1517,3 +1520,11 @@ open vnc://<tailscale-ip>              # GUI (from macOS)
   - **Table of contents** with estimated times per phase
   - **Estimated total setup time** (~3.5 hours)
   - **Expanded checklist** with time estimates per section
+  - **v4.1 (2026-02-22):**
+    - Fixed `set -euo pipefail` → `set -uo pipefail` in both scripts (set -e killed scripts before $? could be read on non-zero exits — token refresh was completely non-functional)
+    - Fixed FileVault vs automatic login contradiction — FileVault disables automatic login on macOS; removed "enable automatic login" instruction, added clear explanation of boot behavior and `fdesetup authrestart` for planned reboots
+    - Fixed checklist: `brew pin node` now comes after `brew install node` (can't pin what isn't installed)
+    - Fixed auto-update version comparison: now uses `npm list -g --json` for installed version (same format as `npm view`, prevents false mismatch)
+    - Fixed SSH hardening: removed `UsePAM no` (breaks macOS account integration); `PasswordAuthentication no` + `KbdInteractiveAuthentication no` is sufficient
+    - Removed dead `gateway-start-delay.sh` script (was never wired into launchd plist); replaced with explanation that OpenClaw handles reconnection natively
+    - Fixed disaster recovery git clone: SSH → HTTPS (SSH keys won't exist on a fresh machine)
