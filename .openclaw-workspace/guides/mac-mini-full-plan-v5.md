@@ -955,10 +955,11 @@ The script checks for this file and skips updates when present, sending you a Te
 
 If Anthropic deprecates setup-token:
 
-1. **Monitor sources:** Anthropic changelogs, OpenClaw Discord, release notes
-2. **Check available auth methods:** `openclaw models auth add` shows current options
-3. **Prepared fallback:** API key is already configured and will auto-activate
+1. **No emergency:** OpenClaw's model failover automatically uses the API key fallback. Kai keeps running — it's a cost increase, not an outage.
+2. **Monitor sources:** Anthropic changelogs, OpenClaw Discord, release notes
+3. **Check available auth methods:** `openclaw models auth add` shows current options
 4. **Update auth method:** OpenClaw will add support for new Anthropic auth as it becomes available
+5. **Budget impact:** Switch to Sonnet for sub-agents/routine tasks to reduce API costs while on fallback auth
 
 ---
 
@@ -1466,7 +1467,9 @@ If the Mac Mini dies, gets replaced, or needs a fresh start:
    ```bash
    cd ~/.openclaw
    # Use HTTPS — SSH keys won't exist on a fresh machine
-   # If private repo requires auth, configure git credential helper instead of embedding PAT in URL
+   # Set up credential helper first (macOS keychain stores the token securely)
+   git config --global credential.helper osxkeychain
+   brew install gh && gh auth login  # or use a GitHub PAT when prompted
    git clone https://github.com/kamil/kai-workspace.git workspace
    ```
 4. **Re-authenticate:**
@@ -1814,3 +1817,16 @@ open vnc://100.x.y.z                   # GUI (from macOS)
     - **M5:** Fix DR git clone - don't embed PAT in URL, use credential helper note
     - **M6:** Add explicit back-reference from Phase 9.2 to Phase 6.3
     - **M7:** Add note about updating OpenClaw on CC container before migrating (optional but recommended)
+- **v5.2 (2026-06-22):**
+  - **CRITICAL:**
+    - Added timeout wrapper (`get_token_with_timeout`) around `claude setup-token` calls in maintenance script — prevents indefinite hang if setup-token requires browser auth
+    - Added `TimeOut` key (300s) to launchd plist as safety net — kills the job if it runs longer than 5 minutes
+  - **SIGNIFICANT:**
+    - Added UPS USB connection instructions — macOS auto-shutdown on low battery prevents data corruption (Phase 2.1)
+    - Added GitHub CLI auth guidance for HTTPS git push — private repo push needs auth before SSH keys exist (Phase 4.3)
+    - Added API spending limit warning — set hard limit on Anthropic dashboard to prevent surprise bills if fallback activates (Phase 3.4)
+  - **MINOR:**
+    - Restructured Node install as Option A/B instead of bash comments (Phase 2.5)
+    - Added credential helper instructions for DR git clone (Phase 10.6)
+    - Made setup-token deprecation plan more concrete — no emergency, just cost increase (Phase 6.7)
+    - Added Sonnet recommendation for sub-agents on fallback auth
