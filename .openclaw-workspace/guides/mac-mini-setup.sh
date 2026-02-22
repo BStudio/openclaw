@@ -748,121 +748,135 @@ phase_7() {
     
     # Ensure directory exists
     run mkdir -p ~/.openclaw
-    
-    # Deferred bot token extraction (jq now available)
-    if [ -z "$TELEGRAM_BOT_TOKEN" ] && [ -f "$CONFIG_BACKUP" ]; then
-        local extracted_token
-        extracted_token=$("$JQ_BIN" -r '.channels.telegram.botToken // ""' "$CONFIG_BACKUP" 2>/dev/null)
-        if [ -n "$extracted_token" ]; then
-            TELEGRAM_BOT_TOKEN="$extracted_token"
-            log "Bot token extracted from config backup ✅"
+
+    if [ "$DRY_RUN" != "true" ]; then
+        # Deferred bot token extraction (jq now available)
+        if [ -z "$TELEGRAM_BOT_TOKEN" ] && [ -f "$CONFIG_BACKUP" ]; then
+            local extracted_token
+            extracted_token=$("$JQ_BIN" -r '.channels.telegram.botToken // ""' "$CONFIG_BACKUP" 2>/dev/null)
+            if [ -n "$extracted_token" ]; then
+                TELEGRAM_BOT_TOKEN="$extracted_token"
+                log "Bot token extracted from config backup ✅"
+            fi
         fi
-    fi
-    
-    if [ -f "$CONFIG_BACKUP" ] && "$JQ_BIN" empty "$CONFIG_BACKUP" 2>/dev/null; then
-        log "Using existing config as base"
-        run cp "$CONFIG_BACKUP" ~/.openclaw/openclaw.json
         
-        # Merge/ensure critical fields
-        "$JQ_BIN" \
-            --arg gwToken "$GATEWAY_TOKEN" \
-            --arg botToken "$TELEGRAM_BOT_TOKEN" \
-            --argjson chatId "$TELEGRAM_CHAT_ID" \
-            '
-            # Compaction settings
-            .agents.defaults.compaction.reserveTokensFloor = (
-                if (.agents.defaults.compaction.reserveTokensFloor // 0) < 16000
-                then 16000
-                else .agents.defaults.compaction.reserveTokensFloor
-                end
-            ) |
-            .agents.defaults.compaction.maxHistoryShare = (
-                .agents.defaults.compaction.maxHistoryShare // 0.7
-            ) |
+        # Config merge or fresh generation
+        if [ -f "$CONFIG_BACKUP" ] && "$JQ_BIN" empty "$CONFIG_BACKUP" 2>/dev/null; then
+            log "Using existing config as base"
+            run cp "$CONFIG_BACKUP" ~/.openclaw/openclaw.json
             
-            # Context pruning
-            .agents.defaults.contextPruning = (
-                .agents.defaults.contextPruning // {
-                    "mode": "cache-ttl",
-                    "ttl": "10m",
-                    "keepLastAssistants": 2,
-                    "softTrimRatio": 0.6,
-                    "hardClearRatio": 0.8,
-                    "minPrunableToolChars": 500
-                }
-            ) |
+            # Merge/ensure critical fields
+            "$JQ_BIN" \
+                --arg gwToken "$GATEWAY_TOKEN" \
+                --arg botToken "$TELEGRAM_BOT_TOKEN" \
+                --argjson chatId "$TELEGRAM_CHAT_ID" \
+                '
+                # Compaction settings
+                .agents.defaults.compaction.reserveTokensFloor = (
+                    if (.agents.defaults.compaction.reserveTokensFloor // 0) < 16000
+                    then 16000
+                    else .agents.defaults.compaction.reserveTokensFloor
+                    end
+                ) |
+                .agents.defaults.compaction.maxHistoryShare = (
+                    .agents.defaults.compaction.maxHistoryShare // 0.7
+                ) |
+                
+                # Context pruning
+                .agents.defaults.contextPruning = (
+                    .agents.defaults.contextPruning // {
+                        "mode": "cache-ttl",
+                        "ttl": "10m",
+                        "keepLastAssistants": 2,
+                        "softTrimRatio": 0.6,
+                        "hardClearRatio": 0.8,
+                        "minPrunableToolChars": 500
+                    }
+                ) |
+                
+                # Internal hooks
+                .hooks.internal.enabled = true |
+                
+                # Commands
+                .commands.native = (.commands.native // "auto") |
+                .commands.nativeSkills = (.commands.nativeSkills // "auto") |
+                
+                # Telegram
+                .channels.telegram.botToken = (if $botToken != "" then $botToken else .channels.telegram.botToken end) |
+                .channels.telegram.allowFrom = [$chatId] |
+                
+                # Gateway token
+                .gateway.auth.token = (
+                    if (.gateway.auth.token // "") != ""
+                    then .gateway.auth.token
+                    else $gwToken
+                    end
+                )
+                ' ~/.openclaw/openclaw.json > /tmp/openclaw-merged.json || die "Config merge failed"
             
-            # Internal hooks
-            .hooks.internal.enabled = true |
+            run mv /tmp/openclaw-merged.json ~/.openclaw/openclaw.json
             
-            # Commands
-            .commands.native = (.commands.native // "auto") |
-            .commands.nativeSkills = (.commands.nativeSkills // "auto") |
-            
-            # Telegram
-            .channels.telegram.botToken = (if $botToken != "" then $botToken else .channels.telegram.botToken end) |
-            .channels.telegram.allowFrom = [$chatId] |
-            
-            # Gateway token
-            .gateway.auth.token = (
-                if (.gateway.auth.token // "") != ""
-                then .gateway.auth.token
-                else $gwToken
-                end
-            )
-            ' ~/.openclaw/openclaw.json > /tmp/openclaw-merged.json || die "Config merge failed"
-        
-        run mv /tmp/openclaw-merged.json ~/.openclaw/openclaw.json
-        
-    else
-        log "Generating fresh config"
-        "$JQ_BIN" -n \
-            --arg botToken "$TELEGRAM_BOT_TOKEN" \
-            --argjson chatId "$TELEGRAM_CHAT_ID" \
-            --arg gwToken "$GATEWAY_TOKEN" \
-            '{
-                "agents": {
-                    "defaults": {
-                        "compaction": {
-                            "reserveTokensFloor": 16000,
-                            "maxHistoryShare": 0.7
-                        },
-                        "contextPruning": {
-                            "mode": "cache-ttl",
-                            "ttl": "10m",
-                            "keepLastAssistants": 2,
-                            "softTrimRatio": 0.6,
-                            "hardClearRatio": 0.8,
-                            "minPrunableToolChars": 500
+        else
+            log "Generating fresh config"
+            "$JQ_BIN" -n \
+                --arg botToken "$TELEGRAM_BOT_TOKEN" \
+                --argjson chatId "$TELEGRAM_CHAT_ID" \
+                --arg gwToken "$GATEWAY_TOKEN" \
+                '{
+                    "agents": {
+                        "defaults": {
+                            "compaction": {
+                                "reserveTokensFloor": 16000,
+                                "maxHistoryShare": 0.7
+                            },
+                            "contextPruning": {
+                                "mode": "cache-ttl",
+                                "ttl": "10m",
+                                "keepLastAssistants": 2,
+                                "softTrimRatio": 0.6,
+                                "hardClearRatio": 0.8,
+                                "minPrunableToolChars": 500
+                            }
                         }
+                    },
+                    "channels": {
+                        "telegram": {
+                            "enabled": true,
+                            "botToken": $botToken,
+                            "dmPolicy": "allowlist",
+                            "allowFrom": [$chatId],
+                            "groupPolicy": "allowlist",
+                            "streamMode": "partial"
+                        }
+                    },
+                    "gateway": {
+                        "mode": "local",
+                        "auth": {
+                            "token": $gwToken
+                        }
+                    },
+                    "hooks": {
+                        "internal": {
+                            "enabled": true
+                        }
+                    },
+                    "commands": {
+                        "native": "auto",
+                        "nativeSkills": "auto"
                     }
-                },
-                "channels": {
-                    "telegram": {
-                        "enabled": true,
-                        "botToken": $botToken,
-                        "dmPolicy": "allowlist",
-                        "allowFrom": [$chatId],
-                        "groupPolicy": "allowlist",
-                        "streamMode": "partial"
-                    }
-                },
-                "gateway": {
-                    "mode": "local",
-                    "auth": {
-                        "token": $gwToken
-                    }
-                },
-                "hooks": {
-                    "internal": {
-                        "enabled": true
-                    }
-                },
-                "commands": {
-                    "native": "auto",
-                    "nativeSkills": "auto"
-                }
-            }' > ~/.openclaw/openclaw.json || die "Fresh config generation failed"
+                }' > ~/.openclaw/openclaw.json || die "Fresh config generation failed"
+        fi
+    else
+        echo "[DRY] Would generate/merge OpenClaw config"
+        # Still do bot token extraction in dry-run (read-only operation)
+        if [ -z "$TELEGRAM_BOT_TOKEN" ] && [ -f "$CONFIG_BACKUP" ] && [ -n "$JQ_BIN" ]; then
+            local extracted_token
+            extracted_token=$("$JQ_BIN" -r '.channels.telegram.botToken // ""' "$CONFIG_BACKUP" 2>/dev/null)
+            if [ -n "$extracted_token" ]; then
+                TELEGRAM_BOT_TOKEN="$extracted_token"
+                log "Bot token extracted from config backup ✅"
+            fi
+        fi
     fi
     
     # 7.2 Restore Workspace
@@ -951,6 +965,9 @@ GITIGNORE_EOF
         log "No git remote configured. Disaster recovery depends on Time Machine only."
         echo "⚠️ This is risky - consider setting GITHUB_REPO."
     fi
+    
+    # Note: Phase 7.4 doesn't need the git remote get-url guard used in Phase 12.1
+    # because the remote was just configured above (only runs when GITHUB_REPO is set).
     
     log "Config & workspace setup complete ✅"
 }
