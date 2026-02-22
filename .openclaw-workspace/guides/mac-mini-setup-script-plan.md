@@ -1,4 +1,4 @@
-# Mac Mini Setup Script — Plan v1.0
+# Mac Mini Setup Script — Plan v1.1
 
 _Companion to: Mac Mini Full Plan v5.2_
 _Automates 10-phase migration onto a brand new Mac Mini M4_
