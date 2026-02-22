@@ -144,9 +144,10 @@ Send to Kamil via Telegram or download. **Do this before the CC session dies.**
 # Config (telegram bot token, channel config, gateway settings)
 cp /root/.openclaw/openclaw.json /tmp/openclaw-config-backup.json
 
-# Auth profiles (if any API keys configured)
+# Auth profiles and credentials
 tar czf /tmp/openclaw-auth-backup.tar.gz \
-  /root/.openclaw/agents/*/agent/auth-profiles.json 2>/dev/null || true
+  /root/.openclaw/agents/*/agent/auth-profiles.json \
+  /root/.openclaw/credentials/ 2>/dev/null || true
 ```
 
 ### 1.3 Note the Telegram Bot Token
@@ -197,7 +198,12 @@ pmset -g
 
 **System Settings (GUI):**
 
-- **General → Software Update** → Disable "Install macOS updates automatically" (we handle updates manually — see Phase 9)
+- **General → Software Update → Automatic Updates:**
+  - "Check for updates" → ON
+  - "Download new updates when available" → ON
+  - "Install macOS updates" → **OFF** (we handle these manually — see Phase 9)
+  - "Install application updates from the App Store" → personal preference
+  - "Install Security Responses and system files" → **ON** (Rapid Security Responses are small, targeted patches that don't reboot. Leaving this on protects against critical vulnerabilities between manual updates.)
 - **Energy** → Prevent automatic sleeping when display is off
 - **Lock Screen** → Set "Require password after screen saver begins" to a reasonable time (5 min is a good balance for local + security)
 
@@ -224,7 +230,7 @@ sudo fdesetup enable
 > **What this means for a 24/7 server:**
 >
 > - **Planned reboots (macOS updates, maintenance):** SSH in first and run `sudo fdesetup authrestart` — this pre-authorizes the next boot to skip the FileVault screen once. The machine reboots and comes back unattended.
-> - **Unexpected power loss:** The Mac Mini boots to the FileVault unlock screen and waits. You need to either walk to the monitor and enter the password, or use VNC on local network (Screen Sharing works at the login screen on macOS).
+> - **Unexpected power loss:** The Mac Mini boots to the FileVault unlock screen and waits. You must **physically walk to the monitor and type the password.** VNC/Screen Sharing is NOT available at the FileVault pre-boot screen — macOS hasn't loaded yet, so networking and Screen Sharing aren't running.
 > - **Why this is OK:** The UPS buys time — if power flickers, the UPS keeps the machine running. For a true extended outage, the UPS eventually shuts down gracefully (no data corruption). When power returns, you enter the password once. This is a reasonable trade-off: physical theft protection vs. minor inconvenience on rare power failures.
 >
 > **Do NOT enable automatic login** (System Settings → Users & Groups → Login Options). It won't work with FileVault and the conflicting settings can cause confusion.
@@ -615,8 +621,6 @@ Create `~/Library/LaunchAgents/com.openclaw.token-refresh.plist`:
     </array>
     <key>StartCalendarInterval</key>
     <dict>
-        <key>Weekday</key>
-        <integer>1</integer>
         <key>Hour</key>
         <integer>4</integer>
         <key>Minute</key>
@@ -643,7 +647,7 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.openclaw.token-refre
 
 To unload: `launchctl bootout gui/$(id -u)/com.openclaw.token-refresh`
 
-Runs every Monday at 4 AM local time. Checks health first — only refreshes if expiring.
+Runs **daily at 4 AM** local time. Checks health first — only refreshes if the token is actually expiring (exits instantly if healthy). Daily is safer than weekly because we don't yet know how long setup tokens last. Once you confirm the token lifetime (first week unknown), you can switch to weekly by adding a `<key>Weekday</key><integer>1</integer>` entry.
 
 ### 6.4 Test Manually First
 
