@@ -1,6 +1,23 @@
 # Mac Mini Full Plan — Architecture, Auth & Strategy
 
-## Architecture
+## Current Setup (for reference)
+
+```
+Claude Code session (Max sub $200/mo)
+ │
+ ├── powers CC itself
+ └── issues sk-ant-si-* ephemeral session token
+      │
+      └── OpenClaw reads from /home/claude/.claude/remote/.session_ingress_token
+           │
+           └── hits api.anthropic.com directly (billed to Max sub)
+                │
+                └── Kai → Telegram → Kamil
+
+⚠️ Session-coupled: CC dies = token dies = Kai dies
+```
+
+## Mac Mini Target Architecture
 
 ```
 📱 Kamil (anywhere)
@@ -10,17 +27,28 @@
  ▼
 🖥️ Mac Mini M4 24GB (always on)
  │
- ├── OpenClaw Gateway (local)
- │   ├── Telegram plugin
- │   ├── Cron scheduler
- │   └── Kai (main agent)
- │       ├── SOUL.md, MEMORY.md, workspace
- │       └── future sub-agents
+ ├── launchd (auto-restart on boot/crash)
+ │   └── OpenClaw Gateway (daemon)
+ │       ├── Telegram plugin
+ │       ├── Cron scheduler
+ │       └── Kai (main agent)
+ │           ├── SOUL.md, MEMORY.md, workspace
+ │           └── future sub-agents
+ │
+ ├── Setup Token (sk-ant-oat01-*) → Max sub ($200/mo flat)
+ │   └── auto-refresh script (weekly cron)
  │
  ├── Tailscale (optional, remote admin)
  │
- └── Setup Token → Claude Max ($200/mo flat)
+ └── Claude Code CLI (dev tool only, NOT runtime dependency)
+     └── used to debug/configure/fix openclaw when needed
 ```
+
+## Key Difference from Current Setup
+
+- Current: OpenClaw piggybacks on CC's ephemeral session token (fragile)
+- Mac Mini: OpenClaw uses its own setup-token (long-lived, independent)
+- CC becomes a mechanic, not the engine
 
 ## Auth Method: Setup Token
 
