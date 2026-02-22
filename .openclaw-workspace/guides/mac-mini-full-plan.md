@@ -200,7 +200,6 @@ pmset -g
 - **General → Software Update** → Disable "Install macOS updates automatically" (we handle updates manually — see Phase 9)
 - **Energy** → Prevent automatic sleeping when display is off
 - **Lock Screen** → Set "Require password after screen saver begins" to a reasonable time (5 min is a good balance for local + security)
-- **Users & Groups → Login Options** → Enable automatic login (so the machine comes back after power outage without a password prompt on the login screen)
 
 ### 2.3 Enable FileVault (Disk Encryption)
 
@@ -220,13 +219,15 @@ sudo fdesetup enable
 - FileVault uses hardware-accelerated encryption on Apple Silicon — **zero performance impact**
 - After enabling, the drive encrypts in the background (takes a few hours, doesn't interrupt use)
 
-> **Important for automatic login:** FileVault requires a password at boot to unlock the disk. With automatic login enabled, macOS will auto-login after the FileVault unlock screen. This means: after a power outage, you'll see the FileVault unlock screen on the monitor. You can either:
+> **⚠️ FileVault disables automatic login.** This is a macOS security requirement — you can't have full-disk encryption AND skip the password. After every boot (including power outages), you must enter your password once at the FileVault unlock screen. This password both unlocks the disk and logs you in (one step, not two).
 >
-> - Enter the password locally (monitor attached)
-> - Use `fdesetup authrestart` before rebooting (pre-authorizes the next boot)
-> - Accept the trade-off: if power fails and you're remote, you need someone local to enter the password OR pre-authorize via SSH before the outage
-
-For a home server with UPS, this is rarely an issue — the UPS buys time for graceful shutdown/restart.
+> **What this means for a 24/7 server:**
+>
+> - **Planned reboots (macOS updates, maintenance):** SSH in first and run `sudo fdesetup authrestart` — this pre-authorizes the next boot to skip the FileVault screen once. The machine reboots and comes back unattended.
+> - **Unexpected power loss:** The Mac Mini boots to the FileVault unlock screen and waits. You need to either walk to the monitor and enter the password, or use VNC on local network (Screen Sharing works at the login screen on macOS).
+> - **Why this is OK:** The UPS buys time — if power flickers, the UPS keeps the machine running. For a true extended outage, the UPS eventually shuts down gracefully (no data corruption). When power returns, you enter the password once. This is a reasonable trade-off: physical theft protection vs. minor inconvenience on rare power failures.
+>
+> **Do NOT enable automatic login** (System Settings → Users & Groups → Login Options). It won't work with FileVault and the conflicting settings can cause confusion.
 
 ### 2.4 Enable Remote Access (SSH + Screen Sharing)
 
@@ -517,7 +518,10 @@ Create `~/.openclaw/scripts/refresh-token.sh`:
 # Auto-refresh setup token for OpenClaw
 # All paths must be absolute — launchd runs with a minimal environment
 
-set -euo pipefail
+set -uo pipefail
+# NOTE: Do NOT use set -e here. This script checks exit codes explicitly
+# ($?), and set -e would kill the script on non-zero exits before we can
+# read them (e.g. models status --check returns 1/2 when token is expiring).
 
 # === CONFIGURE THESE ABSOLUTE PATHS ===
 OPENCLAW="/opt/homebrew/bin/openclaw"
@@ -880,7 +884,10 @@ Create `~/.openclaw/scripts/auto-update.sh`:
 # Daily OpenClaw auto-update with safety checks and rollback
 # Runs via launchd at 5 AM daily
 
-set -euo pipefail
+set -uo pipefail
+# NOTE: Do NOT use set -e here. This script checks exit codes explicitly
+# ($?), and set -e would kill the script on non-zero exits before we can
+# read them (e.g. models status --check returns 1/2, gateway status non-zero).
 
 # === CONFIGURE THESE ABSOLUTE PATHS ===
 NPM="/opt/homebrew/bin/npm"
@@ -1412,9 +1419,9 @@ open vnc://<tailscale-ip>              # GUI (from macOS)
 - [ ] Enable Remote Login (SSH)
 - [ ] Enable Screen Sharing (VNC)
 - [ ] Install Homebrew
-- [ ] Pin Node.js version (`brew pin node`)
 - [ ] Install Node.js and jq (`brew install node jq`)
-- [ ] Verify Node >= 22
+- [ ] Verify Node >= 22 (`node --version`)
+- [ ] Pin Node.js version (`brew pin node`)
 
 ### Install Tools (~10 min)
 
