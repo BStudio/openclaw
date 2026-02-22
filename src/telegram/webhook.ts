@@ -82,6 +82,19 @@ export async function startTelegramWebhook(opts: {
     if (handled && typeof handled.catch === "function") {
       void handled
         .then(() => {
+          if (res.statusCode === 401) {
+            runtime.log?.(
+              "telegram: webhook secret token validation failed (check channels.telegram.webhookSecret)",
+            );
+            if (diagnosticsEnabled) {
+              logWebhookError({
+                channel: "telegram",
+                updateType: "telegram-post",
+                error: "secret token validation failed",
+              });
+            }
+            return;
+          }
           if (diagnosticsEnabled) {
             logWebhookProcessed({
               channel: "telegram",

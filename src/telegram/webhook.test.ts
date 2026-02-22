@@ -82,4 +82,43 @@ describe("startTelegramWebhook", () => {
     expect(handlerSpy).toHaveBeenCalled();
     abort.abort();
   });
+
+  it("logs when webhook handler returns 401 (secret token mismatch)", async () => {
+    handlerSpy.mockClear();
+    handlerSpy.mockImplementationOnce(
+      (
+        _req: unknown,
+        res: {
+          writeHead: (s: number) => { end: (b?: string) => void };
+          statusCode?: number;
+          end: (b?: string) => void;
+        },
+      ) => {
+        res.statusCode = 401;
+        res.writeHead(401);
+        res.end("secret token is wrong");
+        return Promise.resolve();
+      },
+    );
+    const logSpy = vi.fn();
+    const abort = new AbortController();
+    const { server } = await startTelegramWebhook({
+      token: "tok",
+      config: { bindings: [] },
+      port: 0,
+      abortSignal: abort.signal,
+      runtime: { log: logSpy, error: vi.fn() },
+    });
+    const addr = server.address();
+    if (!addr || typeof addr === "string") {
+      throw new Error("no addr");
+    }
+    await fetch(`http://127.0.0.1:${addr.port}/telegram-webhook`, { method: "POST" });
+    // Allow microtask to flush
+    await new Promise((r) => setTimeout(r, 50));
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining("webhook secret token validation failed"),
+    );
+    abort.abort();
+  });
 });
