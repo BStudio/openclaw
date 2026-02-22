@@ -316,7 +316,7 @@ brew info node | head -5
 #   source ~/.zprofile
 
 # Verify
-node --version  # must be >= 22.x.x for OpenClaw compatibility
+node --version  # must be >= 22.x.x (Very new major versions (24+) may have untested compatibility — check OpenClaw release notes)
 ```
 
 **Alternative: Node version manager (better for dev workstations):**
@@ -655,6 +655,7 @@ alert_kamil() {
 }
 
 needs_restart=false
+UPDATE_SUCCESS=false
 
 log "=== Starting daily maintenance ==="
 
@@ -981,7 +982,8 @@ http://100.x.y.z:18789
 For HTTPS with Tailscale identity auth (no password needed from tailnet devices):
 
 ```json5
-// In openclaw.json
+// In openclaw.json — verify config keys on your version
+// Run `openclaw config schema` to check available gateway.tailscale options
 {
   gateway: {
     bind: "loopback",
@@ -1117,7 +1119,7 @@ Generate one:
 openssl rand -hex 32
 ```
 
-Most config changes are picked up automatically (hot reload). Only gateway server settings (port, bind, auth mode) require `openclaw gateway restart`.
+After setting the gateway token, run `openclaw gateway restart`. The gateway auth token is a server setting that requires restart.
 
 ---
 
@@ -1276,7 +1278,9 @@ Use an external drive (~$50-100 one-time cost) or a NAS. This is included in the
 
 ### 10.2 Workspace Git
 
-The daily maintenance script doesn't handle workspace git commits. Kai should do this during heartbeats:
+The daily maintenance script doesn't handle workspace git commits. Workspace git commits should be added to HEARTBEAT.md or done manually until heartbeats are configured. Optionally, add a simple git commit/push to the daily maintenance script for automated workspace backups.
+
+Kai should do this during heartbeats:
 
 ```bash
 cd ~/.openclaw/workspace
