@@ -1,4 +1,4 @@
-# Mac Mini Full Plan v4.1 — Architecture, Auth & Strategy
+# Mac Mini Full Plan v4.2 — Architecture, Auth & Strategy
 
 _Last updated: 2026-02-22_
 
@@ -1455,6 +1455,7 @@ open vnc://<tailscale-ip>              # GUI (from macOS)
 - [ ] **Enable FileVault** — save recovery key securely (disables automatic login — this is expected)
 - [ ] Enable Remote Login (SSH)
 - [ ] Enable Screen Sharing (VNC)
+- [ ] Install Xcode Command Line Tools (`xcode-select --install`)
 - [ ] Install Homebrew
 - [ ] Install Node.js and jq (`brew install node jq`)
 - [ ] Verify Node >= 22 (`node --version`)
@@ -1532,6 +1533,7 @@ open vnc://<tailscale-ip>              # GUI (from macOS)
 ### Backup & Monitoring (~10 min)
 
 - [ ] Enable Time Machine
+- [ ] Copy scripts + plists to `workspace/reference/` and git commit
 - [ ] Optional: Push workspace git to private remote
 - [ ] Optional: Set up Healthchecks.io dead man's switch
 - [ ] Optional: Add disk space check to HEARTBEAT.md
@@ -1575,3 +1577,16 @@ open vnc://<tailscale-ip>              # GUI (from macOS)
     - Fixed SSH hardening: removed `UsePAM no` (breaks macOS account integration); `PasswordAuthentication no` + `KbdInteractiveAuthentication no` is sufficient
     - Removed dead `gateway-start-delay.sh` script (was never wired into launchd plist); replaced with explanation that OpenClaw handles reconnection natively
     - Fixed disaster recovery git clone: SSH → HTTPS (SSH keys won't exist on a fresh machine)
+  - **v4.2 (2026-02-22):**
+    - Fixed UptimeRobot recommendation — Tailscale IPs aren't reachable from external monitors. Replaced with Healthchecks.io dead man's switch pattern
+    - Fixed FileVault VNC claim — VNC is impossible at the pre-boot FileVault screen (macOS not loaded yet). Corrected to: physical keyboard required
+    - Changed token refresh from weekly to daily — unknown token lifetime makes weekly a gamble; daily check is near-zero cost (exits instantly if healthy)
+    - Swapped Phase 7 ↔ Phase 8: Tailscale (remote management) now comes BEFORE SSH hardening, so you have remote access as a safety net when disabling password auth
+    - Added `~/.openclaw/credentials/` to Phase 1 backup (OpenClaw docs explicitly list this for migration)
+    - Granular macOS auto-update settings — keep "Security Responses and system files" (RSR) ON for critical patches that don't reboot
+    - Added unknown-version guard to auto-update script (skip if current version can't be determined — rollback would be impossible)
+    - Added Xcode Command Line Tools install (needed for native npm dependencies like sharp)
+    - Added reference copies of scripts + plists in workspace git (recoverable without Time Machine)
+    - Fixed `doctor --fix` → `doctor --yes` inconsistency in troubleshooting table
+    - Offset auto-update to 5:30 AM (avoids overlap with token refresh at 4 AM)
+    - Expanded SSH hardening steps: verify keys from ALL devices via Tailscale before disabling passwords
