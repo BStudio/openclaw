@@ -529,11 +529,9 @@ openclaw gateway start
 ```bash
 openclaw doctor                        # comprehensive health check + auto-fix
 openclaw security audit               # basic security audit
-openclaw security audit --deep        # deeper audit (if --deep flag exists)
+openclaw security audit --deep        # deeper audit
 openclaw models status --check        # model auth health
 ```
-
-> **Note:** Verify the exact `openclaw security audit` flags on your version first. Run `openclaw security audit --help` to see available options.
 
 ### 5.4 Test End-to-End
 
@@ -545,7 +543,7 @@ Send "test" on Telegram. If Kai responds, you're live. 🎉
 openclaw gateway status
 
 # Test restart recovery — kill the process (not graceful stop)
-kill $(pgrep -f "openclaw.*gateway")
+kill $(pgrep -f "openclaw gateway")
 sleep 10
 openclaw gateway status  # should show it restarted automatically
 ```
@@ -791,7 +789,13 @@ if [ "$needs_restart" = true ]; then
             ROLLBACK_VERSION=$("$OPENCLAW" --version 2>/dev/null || echo "unknown")
             log "Rolled back to: $ROLLBACK_VERSION"
 
-            alert_kamil "⚠️ OpenClaw update to $NEW_VERSION failed health checks. Auto-rolled back to $CURRENT_VERSION. Check logs: ~/.openclaw/logs/daily-maintenance.log"
+            # Verify rollback succeeded
+            if [ "$ROLLBACK_VERSION" != "$CURRENT_VERSION" ]; then
+                log "ERROR: Rollback verification failed. Expected $CURRENT_VERSION, got $ROLLBACK_VERSION"
+                alert_kamil "⚠️ OpenClaw rollback failed. Expected $CURRENT_VERSION, got $ROLLBACK_VERSION. Manual intervention needed."
+            else
+                alert_kamil "⚠️ OpenClaw update to $NEW_VERSION failed health checks. Auto-rolled back to $CURRENT_VERSION. Check logs: ~/.openclaw/logs/daily-maintenance.log"
+            fi
         else
             alert_kamil "⚠️ OpenClaw gateway failed health checks after maintenance. SSH in and investigate. Check logs: ~/.openclaw/logs/daily-maintenance.log"
         fi
@@ -1147,7 +1151,7 @@ When config schema changes between versions, `openclaw doctor` handles the migra
 
 ### 9.2 Auto-Update is Already Configured
 
-The daily maintenance script in Phase 6 includes OpenClaw auto-update with:
+The daily maintenance script in Phase 6.3 includes OpenClaw auto-update with:
 
 - Version recording for rollback
 - Automatic health checks after update
@@ -1406,8 +1410,8 @@ If the Mac Mini dies, gets replaced, or needs a fresh start:
    ```bash
    cd ~/.openclaw
    # Use HTTPS — SSH keys won't exist on a fresh machine
-   # If private repo requires auth, use GitHub Personal Access Token:
-   git clone https://username:PAT@github.com/kamil/kai-workspace.git workspace
+   # If private repo requires auth, configure git credential helper instead of embedding PAT in URL
+   git clone https://github.com/kamil/kai-workspace.git workspace
    ```
 4. **Re-authenticate:**
    ```bash
@@ -1479,7 +1483,7 @@ If the Mac Mini dies, gets replaced, or needs a fresh start:
 | Tailscale                          | free (personal)                      |
 | Healthchecks.io                    | free tier                            |
 | API fallback budget                | $50-100 (insurance, may not be used) |
-| **Total**                          | **~$255-305/mo**                     |
+| **Total**                          | **~$205 + $50-100 insurance**        |
 
 ---
 
