@@ -261,9 +261,9 @@ This lets you:
 
 - SSH in for CLI work from any device
 - VNC in for full GUI access (useful for browser-based auth flows like `claude setup-token`)
-- Both work over local network immediately, and over Tailscale from anywhere (Phase 8)
+- Both work over local network immediately, and over Tailscale from anywhere (Phase 7)
 
-> **We'll harden SSH with key-only auth in Phase 7.** For now, password auth is fine on local network.
+> **We'll harden SSH with key-only auth in Phase 8.** For now, password auth is fine on local network.
 
 ### 2.5 Install Dependencies
 
@@ -665,102 +665,11 @@ cat ~/.openclaw/logs/token-refresh.log
 
 ---
 
-## Phase 7: Security Hardening
+## Phase 7: Remote Management
 
-_~20 minutes_
+_~20 minutes — do this BEFORE security hardening so you have remote access as a safety net_
 
-### 7.1 SSH Key-Only Authentication
-
-Password-based SSH is vulnerable to brute-force attacks. Switch to key-only auth.
-
-**Step 1: Generate SSH key on your PC** (if you don't have one):
-
-```bash
-ssh-keygen -t ed25519 -C "kamil@pc"
-```
-
-**Step 2: Copy your public key to the Mac Mini:**
-
-```bash
-ssh-copy-id kamil@<mac-mini-local-ip>
-```
-
-**Step 3: Verify key-based login works:**
-
-```bash
-ssh kamil@<mac-mini-local-ip>  # should NOT ask for password
-```
-
-**Step 4: Disable password authentication:**
-
-```bash
-# On the Mac Mini:
-sudo nano /etc/ssh/sshd_config
-
-# Find and change (or add) these lines:
-# PasswordAuthentication no
-# KbdInteractiveAuthentication no
-#
-# Keep UsePAM yes (default) — macOS needs PAM for account integration.
-# Disabling it can break system auth features. The two lines above are
-# sufficient to block password-based SSH login.
-```
-
-Then restart SSH:
-
-```bash
-sudo launchctl kickstart -k system/com.openssh.sshd
-```
-
-**Step 5: Repeat for phone.** Copy your phone SSH key to the Mac Mini too (Termius, Blink, etc. can generate ed25519 keys).
-
-> **⚠️ Test SSH key login from BOTH devices before disabling password auth.** If you lock yourself out, you'll need the monitor + keyboard.
-
-### 7.2 OpenClaw Security Audit
-
-```bash
-openclaw security audit --fix      # auto-fix safe issues
-openclaw security audit --deep     # deeper checks
-```
-
-### 7.3 macOS Firewall
-
-```bash
-sudo /usr/libexec/ApplicationFirewall/socketfilterfw --setglobalstate on
-sudo /usr/libexec/ApplicationFirewall/socketfilterfw --setblockall on
-```
-
-OpenClaw uses **outbound** connections only (Telegram long-polling, Anthropic API), so blocking all inbound is safe.
-
-> **Note:** `--setblockall on` blocks ALL incoming connections including AirDrop, AirPlay Receiver, and local network discovery. If you use these features, use `--setallowsigned on` instead. Since this is primarily a server, blocking all is the safer default.
-
-> **Tailscale is not affected** — it uses an encrypted tunnel that works through firewalls.
-
-### 7.4 Gateway Auth
-
-Ensure `openclaw.json` has a strong gateway token:
-
-```json5
-{
-  gateway: {
-    mode: "local",
-    auth: {
-      mode: "token",
-      token: "<strong-random-token>",
-    },
-  },
-}
-```
-
-Generate one: `openssl rand -hex 32`
-
----
-
-## Phase 8: Remote Management
-
-_~20 minutes_
-
-### 8.1 Install Tailscale
+### 7.1 Install Tailscale
 
 Tailscale creates an encrypted WireGuard VPN between your devices. Free for personal use (up to 100 devices). No port forwarding, no exposed ports, works from anywhere.
 
@@ -785,7 +694,7 @@ Once all devices are on the same tailnet, they can reach each other securely fro
 tailscale ip -4  # e.g. 100.x.y.z
 ```
 
-### 8.2 Remote Access Methods
+### 7.2 Remote Access Methods
 
 **From PC — SSH (CLI):**
 
@@ -831,11 +740,111 @@ For HTTPS with Tailscale identity auth (no password needed from tailnet devices)
 
 Access via `https://mac-mini.your-tailnet.ts.net/`
 
-### 8.3 Startup Ordering (After Power Outage)
+### 7.3 Startup Ordering (After Power Outage)
 
 After a power outage + FileVault unlock, launchd starts the OpenClaw gateway service. If Wi-Fi/DNS isn't ready yet, the gateway's first connection attempts will fail — but **this is handled automatically.** OpenClaw's Telegram plugin uses long-polling with built-in reconnection and exponential backoff. It will retry until the network is available.
 
 You'll see a few connection errors in the first 10-30 seconds of logs after boot. This is normal and resolves itself. No action needed.
+
+---
+
+## Phase 8: Security Hardening
+
+_~20 minutes — do this AFTER Tailscale (Phase 7) so you have remote access as a fallback if SSH config breaks_
+
+### 8.1 SSH Key-Only Authentication
+
+Password-based SSH is vulnerable to brute-force attacks. Switch to key-only auth.
+
+**Step 1: Generate SSH key on your PC** (if you don't have one):
+
+```bash
+ssh-keygen -t ed25519 -C "kamil@pc"
+```
+
+**Step 2: Copy your public key to the Mac Mini** (use Tailscale IP if remote, local IP if on same network):
+
+```bash
+ssh-copy-id kamil@<mac-mini-ip>
+```
+
+**Step 3: Verify key-based login works:**
+
+```bash
+ssh kamil@<mac-mini-ip>  # should NOT ask for password
+```
+
+**Step 4: Copy your phone's SSH key too.** Generate an ed25519 key in your phone's SSH app (Termius, Blink, etc.), then copy the public key to the Mac Mini. With Tailscale running, your phone can reach the Mac Mini from anywhere — not just local Wi-Fi.
+
+**Step 5: Test key login from ALL devices** (PC via Tailscale, phone via Tailscale, PC via local network if applicable):
+
+```bash
+ssh kamil@<tailscale-ip>  # from PC
+# and from phone SSH app → same Tailscale IP
+```
+
+> **⚠️ Verify keys work from EVERY device before the next step.** If you lock yourself out of SSH, you'll need the physical monitor + keyboard.
+
+**Step 6: Disable password authentication:**
+
+```bash
+# On the Mac Mini:
+sudo nano /etc/ssh/sshd_config
+
+# Find and change (or add) these lines:
+# PasswordAuthentication no
+# KbdInteractiveAuthentication no
+#
+# Keep UsePAM yes (default) — macOS needs PAM for account integration.
+# Disabling it can break system auth features. The two lines above are
+# sufficient to block password-based SSH login.
+```
+
+Then restart SSH:
+
+```bash
+sudo launchctl kickstart -k system/com.openssh.sshd
+```
+
+**Step 7: Test SSH from all devices AGAIN** to confirm it still works after the change.
+
+### 8.2 OpenClaw Security Audit
+
+```bash
+openclaw security audit --fix      # auto-fix safe issues
+openclaw security audit --deep     # deeper checks
+```
+
+### 8.3 macOS Firewall
+
+```bash
+sudo /usr/libexec/ApplicationFirewall/socketfilterfw --setglobalstate on
+sudo /usr/libexec/ApplicationFirewall/socketfilterfw --setblockall on
+```
+
+OpenClaw uses **outbound** connections only (Telegram long-polling, Anthropic API), so blocking all inbound is safe.
+
+> **Note:** `--setblockall on` blocks ALL incoming connections including AirDrop, AirPlay Receiver, and local network discovery. If you use these features, use `--setallowsigned on` instead. Since this is primarily a server, blocking all is the safer default.
+
+> **Tailscale is not affected** — it uses an encrypted tunnel that works through firewalls (it's outbound UDP, not inbound).
+
+### 8.4 Gateway Auth
+
+Ensure `openclaw.json` has a strong gateway token:
+
+```json5
+{
+  gateway: {
+    mode: "local",
+    auth: {
+      mode: "token",
+      token: "<strong-random-token>",
+    },
+  },
+}
+```
+
+Generate one: `openssl rand -hex 32`
 
 ---
 
@@ -1279,8 +1288,8 @@ If the Mac Mini dies, gets replaced, or needs a fresh start:
    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.openclaw.token-refresh.plist
    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.openclaw.auto-update.plist
    ```
-7. **Re-harden (Phase 7):** SSH keys, firewall, FileVault
-8. **Re-install Tailscale (Phase 8):** `brew install --cask tailscale`, authenticate
+7. **Re-install Tailscale (Phase 7):** `brew install --cask tailscale`, authenticate
+8. **Re-harden (Phase 8):** SSH keys, firewall, FileVault
 9. **Start gateway:** `openclaw gateway start`
 10. **Test:** Send message on Telegram
 
