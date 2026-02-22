@@ -360,7 +360,8 @@ echo 'eval "$(fnm env --use-on-cd)"' >> ~/.zprofile
 **Pin Node.js version** (prevents accidental major version bumps):
 
 ```bash
-brew pin node  # or 'fnm default 22' if using fnm
+brew pin node      # if you used Option A
+# or: brew pin node@22   # if you used Option B
 ```
 
 > **Why?** Running `brew upgrade` (to get security patches for other packages) would also upgrade Node — potentially jumping from 22.x to 24.x, which could break OpenClaw. `brew pin node` prevents this while letting everything else upgrade freely. When you're ready to upgrade Node deliberately: `brew upgrade --force node`.
@@ -675,8 +676,8 @@ alert_kamil() {
     BOT_TOKEN=$("$JQ" -r '.channels.telegram.botToken // empty' "$OPENCLAW_HOME/openclaw.json" 2>/dev/null)
     if [ -n "$BOT_TOKEN" ]; then
         "$CURL" -s "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
-            -d chat_id="455442541" \
-            -d text="$msg" \
+            --data-urlencode "chat_id=455442541" \
+            --data-urlencode "text=$msg" \
             > /dev/null 2>&1 && return 0
     fi
 
@@ -1493,7 +1494,8 @@ If the Mac Mini dies, gets replaced, or needs a fresh start:
    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.openclaw.daily-maintenance.plist
    ```
 7. **Re-install Tailscale (Phase 7):** `brew install --cask tailscale`, authenticate
-8. **Re-harden (Phase 8):** SSH keys, file permissions, firewall, FileVault
+8. **Re-harden (Phase 8):** SSH keys, file permissions, firewall
+   **Enable FileVault (Phase 2.3)** if not already enabled on the new machine
 9. **Start gateway:** `openclaw gateway start`
 10. **Test:** Send message on Telegram
 
@@ -1617,7 +1619,7 @@ open vnc://100.x.y.z                   # GUI (from macOS)
 ### Mac Mini Hardware
 
 - [ ] Get a basic UPS ($50-80)
-- [ ] Connect Mac Mini to UPS + monitor
+- [ ] Connect Mac Mini to UPS (via USB) + monitor
 
 ### Mac Mini OS Setup (~30 min)
 
