@@ -15,6 +15,7 @@ import {
   triggerInternalHook,
 } from "../hooks/internal-hooks.js";
 import { loadInternalHooks } from "../hooks/loader.js";
+import { isClaudeCodeSession } from "../infra/claude-code-env.js";
 import { isTruthyEnvValue } from "../infra/env.js";
 import { type PluginServicesHandle, startPluginServices } from "../plugins/services.js";
 import { startBrowserControlServerIfEnabled } from "./server-browser.js";
@@ -129,7 +130,11 @@ export async function startGatewaySidecars(params: {
     );
   }
 
-  if (params.cfg.hooks?.internal?.enabled) {
+  const hooksEnabled = params.cfg.hooks?.internal?.enabled || isClaudeCodeSession();
+  if (hooksEnabled) {
+    if (!params.cfg.hooks?.internal?.enabled && isClaudeCodeSession()) {
+      params.logHooks.info("auto-enabled internal hooks (Claude Code session)");
+    }
     setTimeout(() => {
       const hookEvent = createInternalHookEvent("gateway", "startup", "gateway:startup", {
         cfg: params.cfg,

@@ -1,5 +1,10 @@
 #!/usr/bin/env node --import tsx
 /**
+ * DEPRECATED: Use the bundled session-lifecycle hook instead.
+ * See src/hooks/bundled/session-lifecycle/handler.ts
+ * The in-process hook posts to the session ingress API and monitors the
+ * command queue directly — this service is kept for reference only.
+ *
  * Session Keep-Alive Service
  *
  * Prevents active sessions from timing out by periodically updating their updatedAt timestamp.

@@ -39,6 +39,22 @@ if [ ! -d "$OPENCLAW_STATE/workspace" ] && [ -d "$BOOTSTRAP_DIR/workspace" ]; th
   echo "[session-start] Bootstrapped agent workspace" >&2
 fi
 
+# --- Ensure internal hooks are enabled for Claude Code sessions ---
+if [ -f "$OPENCLAW_STATE/openclaw.json" ]; then
+  node -e "
+    const fs = require('fs');
+    const p = '$OPENCLAW_STATE/openclaw.json';
+    const cfg = JSON.parse(fs.readFileSync(p, 'utf-8'));
+    if (!cfg.hooks) cfg.hooks = {};
+    if (!cfg.hooks.internal) cfg.hooks.internal = {};
+    if (cfg.hooks.internal.enabled !== true) {
+      cfg.hooks.internal.enabled = true;
+      fs.writeFileSync(p, JSON.stringify(cfg, null, 2) + '\n');
+      process.stderr.write('[session-start] Enabled hooks.internal for Claude Code session\n');
+    }
+  " 2>&1 >&2 || true
+fi
+
 # --- Reverse-sync: restore workspace files from git repo ---
 # The repo (.openclaw-workspace/) is the persistent store across sessions.
 # On a fresh container the bootstrap step above only creates template files,

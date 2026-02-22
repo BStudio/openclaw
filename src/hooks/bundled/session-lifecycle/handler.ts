@@ -14,15 +14,18 @@ import type { OpenClawConfig } from "../../../config/config.js";
 import type { HookHandler } from "../../hooks.js";
 import { resolveStorePath } from "../../../config/sessions/paths.js";
 import { loadSessionStore } from "../../../config/sessions/store.js";
+import { isClaudeCodeSession } from "../../../infra/claude-code-env.js";
 import { getActiveTaskCount, getTotalQueueSize } from "../../../process/command-queue.js";
 
 const LOG_FILE = "/tmp/claude-code-activity-monitor.log";
 const CHECK_INTERVAL_MS = 30_000; // 30 seconds
 const PING_INTERVAL_MS = 60_000; // 60 seconds (min time between pings)
 const IDLE_THRESHOLD_MS = 10 * 60_000; // 10 minutes
+const LIVENESS_LOG_INTERVAL_MS = 10 * 60_000; // 10 minutes
 
 let activityTimer: ReturnType<typeof setInterval> | null = null;
 let lastPingTime = 0;
+let lastLivenessLog = 0;
 
 function logToFile(message: string): void {
   try {
@@ -123,6 +126,14 @@ function checkAndPing(cfg: OpenClawConfig, sessionId: string): void {
 
     const isActive = queueBusy || activeSessionCount > 0;
 
+    // Periodic liveness log so we can confirm the monitor is still running
+    if (now - lastLivenessLog >= LIVENESS_LOG_INTERVAL_MS) {
+      logToFile(
+        `liveness: monitor running (active=${isActive}, queue=${activeTasks}/${totalQueued}, sessions=${activeSessionCount})`,
+      );
+      lastLivenessLog = now;
+    }
+
     if (isActive && now - lastPingTime >= PING_INTERVAL_MS) {
       const parts: string[] = [];
       if (activeSessionCount > 0) {
@@ -160,18 +171,12 @@ const handler: HookHandler = async (event) => {
   }
 
   // Only activate in Claude Code sessions
-  const sessionId = process.env.CLAUDE_CODE_REMOTE_SESSION_ID;
-  const isClaudeCode = !!(
-    process.env.CLAUDECODE ||
-    process.env.CLAUDE_CODE_SESSION_ID ||
-    sessionId
-  );
-
-  if (!isClaudeCode) {
+  if (!isClaudeCodeSession()) {
     logToFile("skipped: not a Claude Code session");
     return;
   }
 
+  const sessionId = process.env.CLAUDE_CODE_REMOTE_SESSION_ID;
   if (!sessionId) {
     logToFile("skipped: CLAUDE_CODE_REMOTE_SESSION_ID not set (cannot post to ingress API)");
     return;
@@ -190,12 +195,15 @@ const handler: HookHandler = async (event) => {
     return;
   }
 
+  const shortId = sessionId.slice(0, 16);
   logToFile(`starting activity monitor (session: ${sessionId})`);
+  console.log(`[session-lifecycle] keep-alive monitor started (session: ${shortId}...)`);
 
   activityTimer = setInterval(() => checkAndPing(cfg, sessionId), CHECK_INTERVAL_MS);
   activityTimer.unref(); // don't block gateway shutdown
 
   // Do an initial check immediately
+  lastLivenessLog = Date.now();
   checkAndPing(cfg, sessionId);
 };
 

@@ -9,6 +9,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import type { OpenClawConfig } from "../config/config.js";
 import type { InternalHookHandler } from "./internal-hooks.js";
+import { isClaudeCodeSession } from "../infra/claude-code-env.js";
 import { resolveHookConfig } from "./config.js";
 import { shouldIncludeHook } from "./config.js";
 import { registerInternalHook } from "./internal-hooks.js";
@@ -41,8 +42,8 @@ export async function loadInternalHooks(
     bundledHooksDir?: string;
   },
 ): Promise<number> {
-  // Check if hooks are enabled
-  if (!cfg.hooks?.internal?.enabled) {
+  // Check if hooks are enabled (auto-enable in Claude Code sessions)
+  if (!cfg.hooks?.internal?.enabled && !isClaudeCodeSession()) {
     return 0;
   }
 
@@ -114,7 +115,7 @@ export async function loadInternalHooks(
   }
 
   // 2. Load legacy config handlers (backwards compatibility)
-  const handlers = cfg.hooks.internal.handlers ?? [];
+  const handlers = cfg.hooks?.internal?.handlers ?? [];
   for (const handlerConfig of handlers) {
     try {
       // Resolve module path (absolute or relative to cwd)

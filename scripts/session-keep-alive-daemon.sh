@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
 #
+# DEPRECATED: Use the bundled session-lifecycle hook instead.
+# See src/hooks/bundled/session-lifecycle/handler.ts
+# The in-process hook posts to the session ingress API and monitors the
+# command queue directly — this script is kept for reference only.
+#
 # Session Keep-Alive Daemon
 #
 # Periodically updates session timestamps to prevent idle timeout.
