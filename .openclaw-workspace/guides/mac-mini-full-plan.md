@@ -268,6 +268,10 @@ This lets you:
 ### 2.5 Install Dependencies
 
 ```bash
+# Install Xcode Command Line Tools (needed for native npm dependencies like sharp)
+xcode-select --install
+# Follow the prompt. If already installed, it'll say so.
+
 # Install Homebrew (if not already installed)
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 
@@ -927,6 +931,12 @@ if [ -z "$CURRENT_VERSION" ]; then
 fi
 log "Current version: $CURRENT_VERSION"
 
+if [ "$CURRENT_VERSION" = "unknown" ] || [ -z "$CURRENT_VERSION" ]; then
+    log "ERROR: Cannot determine current version. Skipping update (rollback would be impossible)."
+    alert_kamil "⚠️ OpenClaw auto-update skipped: couldn't determine current version. SSH in and check."
+    exit 1
+fi
+
 # Step 2: Check if update is available
 LATEST_VERSION=$("$NPM" view openclaw version 2>/dev/null || echo "")
 if [ -z "$LATEST_VERSION" ]; then
@@ -1188,16 +1198,23 @@ git commit -m "Workspace update $(date +%Y-%m-%d)"
 
 ### 10.3 Network Down Alerting
 
-**Option A: UptimeRobot (simplest):**
+If home internet drops, Kai goes silent with no way to tell you. Options:
 
-- Free tier at [uptimerobot.com](https://uptimerobot.com)
-- Monitor Mac Mini's Tailscale IP
-- Alerts via email/SMS/push when unreachable
+**Option A: Dead man's switch (most reliable):**
 
-**Option B: Tailscale status:**
+- Use [Healthchecks.io](https://healthchecks.io) (free tier: 20 checks)
+- Create a check with a 1-hour grace period
+- Set up a Kai cron job or HEARTBEAT.md task that pings it: `curl -fsS -m 10 --retry 5 https://hc-ping.com/<your-uuid>`
+- If the ping stops (internet down, Mac Mini dead, Kai crashed), Healthchecks.io alerts you via email/SMS/Slack/etc.
+- Works because the monitoring server is external — it detects the _absence_ of a signal
 
-- The Tailscale app on your phone shows device online/offline
-- Quick glance to check
+**Option B: Tailscale admin console:**
+
+- [login.tailscale.com/admin/machines](https://login.tailscale.com/admin/machines) shows device online/offline
+- The Tailscale app on your phone also shows device status
+- Quick manual check — no automated alerts
+
+> **Note:** External uptime monitors (UptimeRobot etc.) can't reach Tailscale IPs — those are only accessible from your tailnet. Don't try to monitor 100.x.y.z externally.
 
 ### 10.4 Disk Space Monitoring
 
@@ -1464,28 +1481,30 @@ open vnc://<tailscale-ip>              # GUI (from macOS)
 - [ ] Create + load launchd plist
 - [ ] Test manually
 
-### Security Hardening (~20 min)
+### Remote Management (~15 min) — do first
 
-- [ ] Generate SSH key on PC
-- [ ] Copy to Mac Mini (`ssh-copy-id`)
-- [ ] Verify key login works
-- [ ] Generate SSH key on phone, copy to Mac Mini
-- [ ] Disable SSH password auth
-- [ ] Test SSH from both devices after disabling passwords
-- [ ] Enable macOS firewall (`--setblockall on`)
-- [ ] Verify Tailscale still works after firewall
-- [ ] Set strong gateway auth token
-
-### Remote Management (~15 min)
-
-- [ ] Install Tailscale on Mac Mini
+- [ ] Install Tailscale on Mac Mini (`brew install --cask tailscale`)
+- [ ] Authenticate Tailscale
 - [ ] Install Tailscale on PC + phone
-- [ ] Note Mac Mini's Tailscale IP
+- [ ] Note Mac Mini's Tailscale IP (`tailscale ip -4`)
 - [ ] Test SSH via Tailscale from PC
 - [ ] Test VNC via Tailscale from PC
-- [ ] Test SSH from phone
+- [ ] Test SSH from phone via Tailscale
 - [ ] Test Control UI via `http://<tailscale-ip>:18789`
 - [ ] Optional: Tailscale Serve for HTTPS
+
+### Security Hardening (~20 min) — do after Tailscale
+
+- [ ] Generate SSH key on PC
+- [ ] Copy to Mac Mini via Tailscale IP (`ssh-copy-id`)
+- [ ] Verify key login works from PC
+- [ ] Generate SSH key on phone, copy to Mac Mini via Tailscale
+- [ ] Verify key login works from phone
+- [ ] Disable SSH password auth (only after ALL keys verified)
+- [ ] Test SSH from all devices again after disabling passwords
+- [ ] Enable macOS firewall (`--setblockall on`)
+- [ ] Verify Tailscale + SSH + VNC still work after firewall
+- [ ] Set strong gateway auth token
 
 ### Auto-Update (~10 min)
 
