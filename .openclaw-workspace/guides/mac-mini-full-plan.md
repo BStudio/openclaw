@@ -138,6 +138,8 @@ tar czf /tmp/kai-workspace-backup.tar.gz \
 
 Send to Kamil via Telegram or download. **Do this before the CC session dies.**
 
+> **Security note:** The auth backup (1.2) contains API keys and tokens. After downloading it from Telegram, delete the message — no need to leave secrets sitting in chat history.
+
 ### 1.2 Export Full OpenClaw State
 
 ```bash
@@ -451,6 +453,13 @@ _~15 minutes_
 ### 5.1 Stop Old Instance
 
 **Critical:** Stop the CC container gateway FIRST. Two instances polling the same Telegram bot = conflict and message loss.
+
+```bash
+# In the CC container (before shutting it down):
+openclaw gateway stop
+```
+
+If the CC session is already dead (container was disposed), that's fine — just make sure it's not running before you start the new gateway. If in doubt, start the new gateway and verify Telegram works — if messages arrive, the old one is gone.
 
 ### 5.2 Start Gateway
 
@@ -791,18 +800,22 @@ ssh kamil@<tailscale-ip>  # from PC
 
 **Step 6: Disable password authentication:**
 
-```bash
-# On the Mac Mini:
-sudo nano /etc/ssh/sshd_config
+Open the SSH config file:
 
-# Find and change (or add) these lines:
-# PasswordAuthentication no
-# KbdInteractiveAuthentication no
-#
-# Keep UsePAM yes (default) — macOS needs PAM for account integration.
-# Disabling it can break system auth features. The two lines above are
-# sufficient to block password-based SSH login.
+```bash
+sudo nano /etc/ssh/sshd_config
 ```
+
+Find and change (or add) these two lines — **no `#` prefix** (lines starting with `#` are comments and have no effect):
+
+```
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+```
+
+Leave `UsePAM yes` as-is (the default). macOS needs PAM for account integration — the two lines above are sufficient to block password-based SSH login.
+
+> **Tip:** If the file already has `#PasswordAuthentication yes` (commented out), delete that line and add `PasswordAuthentication no` instead. If it has `PasswordAuthentication yes` (uncommented), change `yes` to `no`.
 
 Then restart SSH:
 
@@ -1254,7 +1267,7 @@ fi
 
 OpenClaw writes rolling daily logs to `/tmp/openclaw/openclaw-YYYY-MM-DD.log` (cleared on reboot).
 
-For persistent logs:
+For persistent logs (optional — only if you need logs to survive reboots):
 
 ```json5
 {
@@ -1264,6 +1277,17 @@ For persistent logs:
   },
 }
 ```
+
+> **⚠️ If you enable persistent logging, the file grows unbounded.** Add a macOS newsyslog rule to rotate it:
+>
+> ```bash
+> sudo tee /etc/newsyslog.d/openclaw.conf << 'EOF'
+> # logfilename          [owner:group] mode count size when  flags
+> /Users/kamil/.openclaw/logs/gateway.log  kamil:staff 640  5  10240 *  J
+> EOF
+> ```
+>
+> This keeps 5 rotated copies, rotating when the file hits ~10MB. Alternatively, just use the default `/tmp/` location — it rolls daily and clears on reboot, which is usually fine for a home server.
 
 View logs:
 
@@ -1413,19 +1437,19 @@ open vnc://<tailscale-ip>              # GUI (from macOS)
 
 ### Troubleshooting
 
-| Problem                     | Check                              | Fix                                                                                        |
-| --------------------------- | ---------------------------------- | ------------------------------------------------------------------------------------------ |
-| Kai not responding          | `openclaw gateway status`          | `openclaw gateway restart`                                                                 |
-| Auth errors                 | `openclaw models status --check`   | `claude setup-token` + `paste-token`                                                       |
-| Telegram not working        | `openclaw doctor`                  | Check bot token, one instance only                                                         |
-| Mac Mini sleeping           | `pmset -g`                         | `sudo pmset -a sleep 0`                                                                    |
-| After power outage          | `openclaw gateway status`          | launchd auto-restarts; verify                                                              |
-| Config issues               | `openclaw doctor`                  | `openclaw doctor --yes` (auto-accepts safe fixes)                                          |
-| Update broke things         | `~/.openclaw/logs/auto-update.log` | `npm install -g openclaw@<old-version>`                                                    |
-| Disk full                   | `df -h /`                          | `brew cleanup && npm cache clean --force`                                                  |
-| Can't SSH remotely          | Tailscale app on phone             | Check both devices on same tailnet                                                         |
-| FileVault lock after reboot | Monitor / local VNC                | Enter password at FileVault screen. For planned reboots: `sudo fdesetup authrestart` first |
-| Node version mismatch       | `node --version`                   | `brew install node` (check OpenClaw reqs first)                                            |
+| Problem                     | Check                              | Fix                                                                                                                     |
+| --------------------------- | ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| Kai not responding          | `openclaw gateway status`          | `openclaw gateway restart`                                                                                              |
+| Auth errors                 | `openclaw models status --check`   | `claude setup-token` + `paste-token`                                                                                    |
+| Telegram not working        | `openclaw doctor`                  | Check bot token, one instance only                                                                                      |
+| Mac Mini sleeping           | `pmset -g`                         | `sudo pmset -a sleep 0`                                                                                                 |
+| After power outage          | `openclaw gateway status`          | launchd auto-restarts; verify                                                                                           |
+| Config issues               | `openclaw doctor`                  | `openclaw doctor --yes` (auto-accepts safe fixes)                                                                       |
+| Update broke things         | `~/.openclaw/logs/auto-update.log` | `npm install -g openclaw@<old-version>`                                                                                 |
+| Disk full                   | `df -h /`                          | `brew cleanup && npm cache clean --force`                                                                               |
+| Can't SSH remotely          | Tailscale app on phone             | Check both devices on same tailnet                                                                                      |
+| FileVault lock after reboot | Physical monitor + keyboard        | Enter password at FileVault screen (VNC not available pre-boot). For planned reboots: `sudo fdesetup authrestart` first |
+| Node version mismatch       | `node --version`                   | `brew install node` (check OpenClaw reqs first)                                                                         |
 
 ---
 
