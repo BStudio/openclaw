@@ -1090,8 +1090,8 @@ Node.js updates are separate from OpenClaw and require more care:
 # Check current Node version
 node --version
 
-# Update Node (when you're ready)
-HOMEBREW_NO_AUTO_UPDATE=0 brew upgrade node
+# Update Node (when you're ready — bypasses the pin)
+brew upgrade --force node
 openclaw doctor
 openclaw gateway restart
 ```
@@ -1412,7 +1412,7 @@ open vnc://<tailscale-ip>              # GUI (from macOS)
 - [ ] Enable Remote Login (SSH)
 - [ ] Enable Screen Sharing (VNC)
 - [ ] Install Homebrew
-- [ ] Disable Homebrew auto-update (`HOMEBREW_NO_AUTO_UPDATE=1`)
+- [ ] Pin Node.js version (`brew pin node`)
 - [ ] Install Node.js and jq (`brew install node jq`)
 - [ ] Verify Node >= 22
 
@@ -1511,7 +1511,7 @@ open vnc://<tailscale-ip>              # GUI (from macOS)
   - **SSH key-only authentication** — disable password auth, setup for PC and phone
   - **Auto-update strategy (Phase 9)** — daily OpenClaw updates from upstream npm with automatic rollback on health check failure, Telegram alerts on success/failure
   - **Layer separation diagram** — explains why updates never touch your config/workspace/scripts
-  - **Homebrew version pinning** — `HOMEBREW_NO_AUTO_UPDATE=1` prevents accidental Node major version bumps
+  - **Node.js version pinning** — `brew pin node` prevents accidental Node major version bumps during `brew upgrade`
   - **Node.js update strategy** — when and when not to update, manual approach
   - **macOS update strategy** — monthly maintenance window approach with pre-authorized FileVault restart
   - **Claude Code CLI update strategy** — separate from OpenClaw, monthly
