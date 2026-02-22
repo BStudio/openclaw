@@ -1,4 +1,4 @@
-# Mac Mini Full Plan v5.0 — Architecture, Auth & Strategy
+# Mac Mini Full Plan v5.1 — Architecture, Auth & Strategy
 
 _Last updated: 2026-06-22_
 
