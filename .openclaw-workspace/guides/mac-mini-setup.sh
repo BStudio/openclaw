@@ -67,6 +67,9 @@ CLAUDE_BIN=""
 # Create log directory early
 mkdir -p "$(dirname "$LOG_FILE")" 2>/dev/null || true
 
+# Capture all output to log file (tee to both terminal and file)
+exec > >(tee -a "$LOG_FILE") 2>&1
+
 # Helper functions
 log() { 
     echo "[$(date -u '+%Y-%m-%d %H:%M:%S')] [PHASE $CURRENT_PHASE] $1" | tee -a "$LOG_FILE"
