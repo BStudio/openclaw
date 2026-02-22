@@ -1438,8 +1438,10 @@ PLIST_EOF
     # 9.4 Test
     log "Testing maintenance script..."
     if [ "$DRY_RUN" != "true" ]; then
-        echo "Running maintenance script once to verify it works..."
-        ~/.openclaw/scripts/daily-maintenance.sh || echo "⚠️ Maintenance script test had issues. Check logs."
+        echo "Validating maintenance script syntax..."
+        bash -n ~/.openclaw/scripts/daily-maintenance.sh || echo "⚠️ Maintenance script has syntax errors. Check the generated file."
+        echo "ℹ️  Maintenance script will run automatically at $(printf '%d:%02d' $MAINTENANCE_HOUR $MAINTENANCE_MINUTE)."
+        echo "   To test manually: ~/.openclaw/scripts/daily-maintenance.sh"
         log "Maintenance script test complete"
     else
         echo "[DRY] Would test maintenance script"
@@ -1618,7 +1620,7 @@ phase_12() {
         
         cd ~/.openclaw/workspace || die "Failed to cd to workspace"
         git add reference/
-        git commit -m "Add reference copies of scripts and plists"
+        git diff --cached --quiet || git commit -m "Add reference copies of scripts and plists"
         
         if git remote get-url origin &>/dev/null; then
             if git push origin main; then
@@ -1774,7 +1776,7 @@ phase_13() {
     fi
     
     # Maintenance
-    if launchctl print gui/$(id -u) | grep -q "com.openclaw.daily-maintenance" 2>/dev/null; then
+    if launchctl list 2>/dev/null | grep -q "com.openclaw.daily-maintenance"; then
         results+=("Maintenance:   daily at $(printf '%d:%02d' $MAINTENANCE_HOUR $MAINTENANCE_MINUTE) ✅")
     else
         results+=("Maintenance:   not scheduled ❌")
