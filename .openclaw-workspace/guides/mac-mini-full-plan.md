@@ -278,14 +278,13 @@ node --version  # must be >= 22.x.x
 
 > **Why `brew install node` and not `node@22`?** Versioned formulas like `node@22` are keg-only in Homebrew — they don't link to PATH automatically and require extra steps. `brew install node` installs the latest version (currently 22.x+ LTS) and links it properly. This matches [OpenClaw's official Node docs](https://docs.openclaw.ai/install/node).
 
-**Disable Homebrew auto-update** (prevents accidental Node major version bumps):
+**Pin Node.js version** (prevents accidental major version bumps):
 
 ```bash
-echo 'export HOMEBREW_NO_AUTO_UPDATE=1' >> ~/.zprofile
-source ~/.zprofile
+brew pin node
 ```
 
-> **Why?** By default, Homebrew runs `brew update` before every `brew install`. This could silently upgrade Node from 22.x to 24.x during an unrelated install. We'll update Homebrew manually on our schedule (see Phase 9).
+> **Why?** Running `brew upgrade` (to get security patches for other packages) would also upgrade Node — potentially jumping from 22.x to 24.x, which could break OpenClaw. `brew pin node` prevents this while letting everything else upgrade freely. When you're ready to upgrade Node deliberately: `brew upgrade --force node`.
 
 **Note the install paths — needed for launchd scripts later:**
 
