@@ -505,7 +505,7 @@ phase_4() {
             if ! grep -q 'node@22' ~/.zprofile 2>/dev/null; then
                 echo 'export PATH="/opt/homebrew/opt/node@22/bin:$PATH"' >> ~/.zprofile
             fi
-            source ~/.zprofile 2>/dev/null || true
+            export PATH="/opt/homebrew/opt/node@22/bin:$PATH"
             node_formula="node@22"
         fi
         
@@ -690,8 +690,7 @@ phase_6() {
         fi
     elif [ "$auth_mode" = "apikey-only" ]; then
         if [ "$DRY_RUN" != "true" ]; then
-            echo "Enter your Anthropic API key (from console.anthropic.com):"
-            read -r api_key
+            read -rp "Enter your Anthropic API key (from console.anthropic.com): " api_key
             if [ -n "$api_key" ]; then
                 echo "$api_key" | "$OPENCLAW_BIN" models auth add --provider anthropic --name "api-key-fallback"
                 log "API key configured ✅"
