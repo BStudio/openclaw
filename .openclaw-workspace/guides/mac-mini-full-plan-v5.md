@@ -465,6 +465,8 @@ openclaw models auth add
 
 This gives you a fallback if setup-token ever breaks. OpenClaw fails over automatically.
 
+> **⚠️ Set a spending limit** on the Anthropic dashboard (console.anthropic.com → Settings → Limits). If setup-token dies and Opus runs on the API key, costs can spike fast. A hard monthly limit ($50-100) prevents surprise bills.
+
 ---
 
 ## Phase 4: Migrate Workspace
@@ -510,12 +512,17 @@ git commit -m "Initial workspace migration from CC container"
 **Add private remote for off-site backup** (required for disaster recovery):
 
 ```bash
+# Authenticate with GitHub first (needed for HTTPS push to private repos)
+brew install gh
+gh auth login
+
+# Add remote and push
 git remote add origin https://github.com/kamil/kai-workspace.git
 git branch -M main
 git push -u origin main
 ```
 
-> **⚠️ This step is required, not optional.** The disaster recovery procedure depends on having the workspace backed up outside the Mac Mini. Note: Using HTTPS since SSH keys don't exist yet (Phase 8). Can switch to SSH after Phase 8 is complete.
+> **⚠️ This step is required, not optional.** The disaster recovery procedure depends on having the workspace backed up outside the Mac Mini. Using HTTPS since SSH keys don't exist yet (Phase 8). After Phase 8, you can switch to SSH: `git remote set-url origin git@github.com:kamil/kai-workspace.git`
 
 ---
 
@@ -681,6 +688,27 @@ alert_kamil() {
 needs_restart=false
 UPDATE_SUCCESS=false
 
+# Timeout wrapper for claude setup-token (macOS has no GNU timeout)
+# Prevents script from hanging if setup-token requires browser auth
+get_token_with_timeout() {
+    "$CLAUDE" setup-token 2>> "$LOG" &
+    local pid=$!
+    local timeout=30
+    local count=0
+    while kill -0 $pid 2>/dev/null && [ $count -lt $timeout ]; do
+        sleep 1
+        count=$((count + 1))
+    done
+    if kill -0 $pid 2>/dev/null; then
+        kill $pid 2>/dev/null
+        wait $pid 2>/dev/null
+        log "WARNING: claude setup-token timed out after ${timeout}s (likely needs browser auth)"
+        echo ""  # return empty = failure
+    else
+        wait $pid
+    fi
+}
+
 log "=== Starting daily maintenance ==="
 
 # PART 1: TOKEN HEALTH CHECK
@@ -693,8 +721,8 @@ case $TOKEN_STATUS in
         ;;
     1)  log "Token is expired or missing. Attempting refresh..."
 
-        # Try automatic refresh
-        NEW_TOKEN=$("$CLAUDE" setup-token 2>> "$LOG")
+        # Try automatic refresh (with timeout to prevent hanging)
+        NEW_TOKEN=$(get_token_with_timeout)
 
         if [ -n "$NEW_TOKEN" ]; then
             echo "$NEW_TOKEN" | "$OPENCLAW" models auth paste-token --provider anthropic >> "$LOG" 2>&1
@@ -716,7 +744,7 @@ case $TOKEN_STATUS in
         ;;
     2)  log "Token is expiring within 24h. Attempting refresh..."
 
-        NEW_TOKEN=$("$CLAUDE" setup-token 2>> "$LOG")
+        NEW_TOKEN=$(get_token_with_timeout)
 
         if [ -n "$NEW_TOKEN" ]; then
             echo "$NEW_TOKEN" | "$OPENCLAW" models auth paste-token --provider anthropic >> "$LOG" 2>&1
@@ -871,6 +899,8 @@ Create `~/Library/LaunchAgents/com.openclaw.daily-maintenance.plist`:
         <key>Minute</key>
         <integer>0</integer>
     </dict>
+    <key>TimeOut</key>
+    <integer>300</integer>
     <key>StandardOutPath</key>
     <string>/Users/kamil/.openclaw/logs/maintenance-stdout.log</string>
     <key>StandardErrorPath</key>
